@@ -113,7 +113,7 @@ def parse_f95_thread_universal(url: str) -> Dict[str, Any]:
 
     body = soup.select_one('.message-body .bbWrapper')
     if not body:
-        return {"error": "Message body not found", "title": page_title}
+        return {"error": "无法获取帖子正文内容。可能原因：F95zone Cookie 已失效需要重新登录，或 IP 触发了 Cloudflare 拦截验证", "title": page_title}
 
     # Extract Password
     full_text = body.get_text(separator="\n")
@@ -173,6 +173,10 @@ def get_f95_data_cached(url: str, force: bool = False, ttl_seconds: int = 600) -
             return cached["data"]
             
     fresh = parse_f95_thread_universal(url)
+    if "error" in fresh:
+        # DO NOT cache failed results! Raise so caller knows scraping failed.
+        raise RuntimeError(fresh["error"])
+
     _f95_thread_cache[url] = {
         "timestamp": now,
         "data": fresh

@@ -69,12 +69,17 @@ class DownloadJob:
             if not direct_url:
                 raise Exception(f"该网盘不支持后台直接下载 (如 Mega/Workupload 需浏览器客户端)，请点击「在浏览器中打开网盘」进行下载: {real_url}")
 
+            from config import safe_join, safe_filename
+
             if not fname:
-                fname = f"{self.author}_{self.month}.zip"
+                fname = f"{safe_filename(self.author)}_{safe_filename(self.month)}.zip"
+            else:
+                fname = safe_filename(fname)
 
-            local_file = dl_dir / fname
+            local_file = safe_join(dl_dir, fname)
+            part_file = local_file.with_name(f"{local_file.name}.part")
 
-            # 3. Download stream
+            # 3. Download stream to .part file first
             self.status = "DOWNLOADING"
             if progress_callback:
                 progress_callback(self)
@@ -99,7 +104,7 @@ class DownloadJob:
                 last_time = start_time
                 last_bytes = 0
 
-                with open(local_file, 'wb') as f:
+                with open(part_file, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=1024 * 512):
                         if chunk:
                             f.write(chunk)
@@ -118,13 +123,15 @@ class DownloadJob:
                                     progress_callback(self)
 
             # Verification of downloaded file
-            if local_file.stat().st_size < 10000: # < 10KB
-                with open(local_file, 'rb') as f:
+            if part_file.stat().st_size < 10000: # < 10KB
+                with open(part_file, 'rb') as f:
                     head = f.read(100)
                     if b'<html' in head.lower() or b'<!doctype' in head.lower():
-                        local_file.unlink(missing_ok=True)
+                        part_file.unlink(missing_ok=True)
                         raise Exception("下载的文件为 HTML 网页并非压缩包，请在浏览器中手动下载。")
 
+            # Rename .part to final file atomically
+            os.replace(part_file, local_file)
             self.progress = 100.0
 
             # 4. Extract & Organize
@@ -133,7 +140,7 @@ class DownloadJob:
                 if progress_callback:
                     progress_callback(self)
 
-                dest_dir = lib_root / self.author / self.month
+                dest_dir = safe_join(lib_root, safe_filename(self.author), safe_filename(self.month))
                 passwords = [self.password, "f95zone", self.author]
                 ok, msg = extract_archive(local_file, dest_dir, passwords=passwords)
                 if not ok:
@@ -152,6 +159,11 @@ class DownloadJob:
                 progress_callback(self)
 
         except Exception as e:
+            try:
+                if 'part_file' in locals() and part_file.exists():
+                    part_file.unlink(missing_ok=True)
+            except Exception:
+                pass
             self.status = "FAILED"
             self.error_msg = str(e)
             if progress_callback:

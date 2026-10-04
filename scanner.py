@@ -58,6 +58,16 @@ IGNORE_EXTENSIONS = {
     '.tmp', '.log', '.md', '.html', '.htm', '.json', '.xml', '.yml', '.yaml'
 }
 
+def is_dir_non_empty(d: Path) -> bool:
+    """Returns True if directory contains at least one non-ignored file."""
+    try:
+        for f in d.rglob('*'):
+            if f.is_file() and not f.name.startswith('.') and f.suffix.lower() not in IGNORE_EXTENSIONS:
+                return True
+    except Exception:
+        pass
+    return False
+
 def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
     """
     Scans a single author directory and returns detected months, terms, media assets, and structure.
@@ -124,22 +134,24 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                 })
 
             elif entry.is_dir():
-                # Direct subfolder month match (e.g. "2020.01", "202103")
+                has_content = is_dir_non_empty(entry)
+                # Direct subfolder month match (e.g. "2020.01", "202103") - requires actual content
                 m = normalize_month(entry.name)
-                if m:
+                if m and has_content:
                     detected_months.add(m)
                     month_details.setdefault(m, []).append(entry.name)
                 # Check Term
                 t_match = re.search(r'(Term\s*\d+|Pack\s*\d+|Vol(?:ume)?\.?\s*\d+)', entry.name, re.I)
-                if t_match:
+                if t_match and has_content:
                     detected_terms.add(t_match.group(1).title())
 
-                media_assets.append({
-                    "name": entry.name,
-                    "rel_path": entry.name,
-                    "is_dir": True,
-                    "size_mb": 0
-                })
+                if has_content:
+                    media_assets.append({
+                        "name": entry.name,
+                        "rel_path": entry.name,
+                        "is_dir": True,
+                        "size_mb": 0
+                    })
 
                 # Year folder transparency (e.g. "2021", "2022")
                 year_match = re.fullmatch(r'20\d{2}', entry.name.strip())
@@ -151,8 +163,9 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                         sub_m = re.fullmatch(r'(0?[1-9]|1[0-2])', sub_entry.name.strip())
                         if sub_m:
                             norm_m = f"{year}-{int(sub_m.group(1)):02d}"
-                            detected_months.add(norm_m)
-                            month_details.setdefault(norm_m, []).append(f"{entry.name}/{sub_entry.name}")
+                            if (sub_entry.is_file() and sub_entry.suffix.lower() not in IGNORE_EXTENSIONS) or (sub_entry.is_dir() and is_dir_non_empty(sub_entry)):
+                                detected_months.add(norm_m)
+                                month_details.setdefault(norm_m, []).append(f"{entry.name}/{sub_entry.name}")
                         else:
                             if sub_entry.is_file() and sub_entry.suffix.lower() not in IGNORE_EXTENSIONS:
                                 media_assets.append({
@@ -227,10 +240,11 @@ CACHE_DIR = Path(__file__).parent / "data"
 CACHE_FILE = CACHE_DIR / "library_cache.json"
 _memory_cache: Dict[str, Any] = {}
 
+from config import atomic_write_json
+
 def get_dir_signature(p: Path) -> float:
     """
-    Computes a fast modification signature using directory and sub-directory st_mtime.
-    Requires no recursive deep scanning.
+    Computes a fast modification signature using directory and sub-directory st_mtime up to 2 levels deep.
     """
     try:
         sig = p.stat().st_mtime
@@ -239,6 +253,14 @@ def get_dir_signature(p: Path) -> float:
                 m = sub.stat().st_mtime
                 if m > sig:
                     sig = m
+                try:
+                    for sub2 in sub.iterdir():
+                        if sub2.is_dir():
+                            m2 = sub2.stat().st_mtime
+                            if m2 > sig:
+                                sig = m2
+                except Exception:
+                    pass
         return sig
     except Exception:
         return 0.0
@@ -259,12 +281,7 @@ def load_library_cache() -> Dict[str, Any]:
 def save_library_cache(cache: Dict[str, Any]):
     global _memory_cache
     _memory_cache = cache
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    atomic_write_json(CACHE_FILE, cache)
 
 def invalidate_author_cache(author_name: str):
     global _memory_cache

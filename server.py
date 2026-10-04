@@ -23,29 +23,25 @@ ARTISTS_FILE = DATA_DIR / "artists.json"
 # In-memory tracking of active download jobs
 active_jobs: Dict[str, DownloadJob] = {}
 
+_artists_lock = threading.Lock()
+
 def get_saved_artists() -> Dict[str, Any]:
-    if not ARTISTS_FILE.exists():
-        # Initialize default with Kidmo
-        init_data = {
-            "Kidmo": {
-                "name": "Kidmo",
-                "thread_url": "https://f95zone.to/threads/kidmo-collection-2021-03-28-kidmo.48236/",
-                "last_checked": None,
-                "missing_count": 0
-            }
-        }
-        with open(ARTISTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(init_data, f, ensure_ascii=False, indent=2)
-        return init_data
-    try:
-        with open(ARTISTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with _artists_lock:
+        if not ARTISTS_FILE.exists():
+            init_data = {}
+            from config import atomic_write_json
+            atomic_write_json(ARTISTS_FILE, init_data)
+            return init_data
+        try:
+            with open(ARTISTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 def save_artists(data: Dict[str, Any]):
-    with open(ARTISTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    from config import atomic_write_json
+    with _artists_lock:
+        atomic_write_json(ARTISTS_FILE, data)
 
 # --- Models ---
 class BindArtistRequest(BaseModel):
@@ -63,10 +59,24 @@ class ConfigUpdateRequest(BaseModel):
     library_root: Optional[str] = None
     delete_archive_after_extract: Optional[bool] = None
 
+def mask_cookie_val(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    if len(val) <= 10:
+        return "******"
+    return val[:4] + "******" + val[-4:]
+
 # --- API Endpoints ---
 @app.get("/api/config")
 def get_config():
-    return load_config()
+    cfg = load_config()
+    safe = cfg.copy()
+    if safe.get("xf_user"):
+        safe["xf_user_masked"] = mask_cookie_val(safe["xf_user"])
+        safe["has_xf_user"] = True
+    else:
+        safe["has_xf_user"] = False
+    return safe
 
 @app.post("/api/config")
 def update_config(req: ConfigUpdateRequest):
@@ -157,9 +167,16 @@ class OpenFolderRequest(BaseModel):
 
 @app.post("/api/authors/open_folder")
 def open_author_folder(req: OpenFolderRequest):
+    from config import safe_join, safe_filename
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
-    target = lib_root / req.author
+    
+    try:
+        clean_author = safe_filename(req.author)
+        target = safe_join(lib_root, clean_author)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"非法路径: {str(e)}")
+
     if not target.exists() and lib_root.exists():
         for child in lib_root.iterdir():
             if child.is_dir() and child.name.lower() == req.author.lower():
@@ -167,14 +184,17 @@ def open_author_folder(req: OpenFolderRequest):
                 break
 
     if req.subpath:
-        sub = target / req.subpath
-        if sub.exists():
-            target = sub
+        try:
+            sub = safe_join(target, *req.subpath.replace("\\", "/").split("/"))
+            if sub.exists():
+                target = sub
+        except Exception:
+            pass
 
     if not target.exists():
-        raise HTTPException(status_code=404, detail=f"Directory or file '{target}' not found")
+        raise HTTPException(status_code=404, detail=f"目录或文件 '{target}' 未找到")
         
-    norm_path = os.path.normpath(str(target.resolve()))
+    norm_path = os.path.normpath(str(target))
     success = launch_explorer_interactive(norm_path, is_file=target.is_file())
     if success:
         return {"status": "ok", "opened": norm_path}
@@ -201,8 +221,10 @@ def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool =
 @app.post("/api/download/start")
 def start_download(req: StartDownloadRequest, background_tasks: BackgroundTasks):
     job_id = f"{req.author}_{req.month}"
-    if job_id in active_jobs and active_jobs[job_id].status in ("DOWNLOADING", "EXTRACTING"):
-        return {"status": "already_running", "job_id": job_id}
+    if job_id in active_jobs:
+        curr = active_jobs[job_id].status
+        if curr not in ("FAILED", "CANCELLED", "COMPLETED", "DONE"):
+            return {"status": "already_running", "job_id": job_id}
 
     job = DownloadJob(
         author=req.author,
@@ -233,6 +255,11 @@ def scan_downloads_endpoint():
 
 @app.post("/api/downloads/ingest")
 def ingest_endpoint(req: IngestRequest):
+    p = Path(req.archive_path)
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=400, detail="指定的压缩包文件不存在")
+    if p.suffix.lower() not in ('.zip', '.rar', '.7z', '.tar', '.gz'):
+        raise HTTPException(status_code=400, detail="不支持的文件格式")
     res = ingest_archive_to_library(req.archive_path, req.author, req.month, req.password or "f95zone")
     if res.get("status") == "ok":
         invalidate_author_cache(req.author)

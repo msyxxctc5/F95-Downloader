@@ -33,6 +33,8 @@ def scan_downloads_folder(downloads_dir: Optional[str] = None) -> List[Dict[str,
             
     return sorted(results, key=lambda x: x["filename"].lower())
 
+from config import load_config, safe_join, safe_filename
+
 def ingest_archive_to_library(
     archive_path_str: str,
     author: str,
@@ -40,28 +42,33 @@ def ingest_archive_to_library(
     password: str = "f95zone"
 ) -> Dict[str, Any]:
     """
-    Extracts an archive from Downloads directly into H:\akinaclub\<author>\<month>,
-    then removes the original archive.
+    Extracts an archive safely into H:\akinaclub\<author>\<month>,
+    then removes the original archive only if extraction fully succeeds.
     """
     archive_path = Path(archive_path_str)
-    if not archive_path.exists():
-        return {"status": "error", "message": "文件不存在"}
+    if not archive_path.exists() or not archive_path.is_file():
+        return {"status": "error", "message": "压缩包文件不存在"}
 
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
-    target_dir = lib_root / author / month
-    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        clean_author = safe_filename(author)
+        clean_month = safe_filename(month)
+        target_dir = safe_join(lib_root, clean_author, clean_month)
+    except Exception as e:
+        return {"status": "error", "message": f"路径校验不合法: {str(e)}"}
 
     passwords = [password, "f95zone", author]
     ok, msg = extract_archive(archive_path, target_dir, passwords=passwords)
     if not ok:
         return {"status": "error", "message": f"解压失败: {msg}"}
 
-    # Delete source archive if configured
+    # Delete source archive only after verified successful extraction
     if cfg.get("delete_archive_after_extract", True):
         try:
-            archive_path.unlink()
-        except Exception:
+            archive_path.unlink(missing_ok=True)
+        except Exception as e:
             pass
 
     return {
