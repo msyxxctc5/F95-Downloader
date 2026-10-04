@@ -43,10 +43,12 @@ def save_artists(data: Dict[str, Any]):
     with _artists_lock:
         atomic_write_json(ARTISTS_FILE, data)
 
-# --- Models ---
 class BindArtistRequest(BaseModel):
     author: str
     thread_url: str
+
+class UnbindArtistRequest(BaseModel):
+    author: str
 
 class StartDownloadRequest(BaseModel):
     author: str
@@ -121,6 +123,15 @@ def bind_author_thread(req: BindArtistRequest):
     saved[req.author]["thread_url"] = req.thread_url
     save_artists(saved)
     return {"status": "ok", "artist": saved[req.author]}
+
+@app.post("/api/authors/unbind")
+def unbind_author_thread(req: UnbindArtistRequest):
+    saved = get_saved_artists()
+    if req.author in saved:
+        saved[req.author]["thread_url"] = None
+        saved[req.author]["missing_count"] = 0
+        save_artists(saved)
+    return {"status": "ok", "author": req.author}
 
 def launch_explorer_interactive(target_path: str, is_file: bool = False):
     import subprocess

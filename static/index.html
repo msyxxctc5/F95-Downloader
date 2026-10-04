@@ -673,8 +673,9 @@
             <span class="author-name">${a.name}</span>
             <span class="author-meta">已归档 ${a.month_count} 个月份 ${a.latest_month ? '· 最新: ' + a.latest_month : ''}</span>
           </div>
-          <div>
+          <div style="display: flex; align-items: center; gap: 6px;">
             ${a.missing_count > 0 ? `<span class="badge badge-missing">缺 ${a.missing_count}</span>` : (a.thread_url ? `<span class="badge badge-ok">已绑</span>` : '')}
+            ${a.thread_url ? `<a href="${a.thread_url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="在浏览器新窗口打开 F95zone 原帖" style="color: var(--text-muted); font-size: 13px; text-decoration: none; padding: 2px 4px; border-radius: 4px; display: inline-flex; align-items: center;" onmouseover="this.style.color='var(--accent-primary)'" onmouseout="this.style.color='var(--text-muted)'">↗</a>` : ''}
           </div>
         </div>
       `).join('');
@@ -830,6 +831,35 @@
       }
     }
 
+    async function unbindAuthorThread(name) {
+      if (!confirm(`确定要解除作者 [${name}] 与当前专楼的绑定吗？\n解绑后将清空绑定链接，您可以重新搜索或手动输入新专楼链接。`)) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/authors/unbind', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author: name })
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          const author = authorsData.find(a => a.name === name);
+          if (author) {
+            author.thread_url = null;
+            author.missing_count = 0;
+          }
+          currentAuthorThreadUrl = "";
+          currentDiff = null;
+          renderAuthorList(authorsData);
+          renderAuthorEmptyThread(name);
+        } else {
+          alert('解绑失败: ' + (data.detail || '未知错误'));
+        }
+      } catch (e) {
+        alert('解绑出错: ' + e.message);
+      }
+    }
+
     async function fetchDiff(name, url, force = false) {
       currentAuthorThreadUrl = url;
       try {
@@ -846,8 +876,17 @@
             <div class="card-title-row">
               <span class="author-display-title">${name}</span>
             </div>
-            <div style="color: var(--danger); font-size: 14px;">获取失败: ${e.message}</div>
-            <button class="btn btn-secondary" style="width: 120px;" onclick="renderAuthorEmptyThread('${name}')">更换帖子链接</button>
+            <div style="color: var(--danger); font-size: 14px; margin-top: 8px;">获取失败: ${e.message}</div>
+            <div style="display: flex; gap: 8px; margin-top: 14px;">
+              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px; color: #f87171; border-color: rgba(248, 113, 113, 0.3);" onclick="unbindAuthorThread('${name}')">
+                🔗 解绑重选链接
+              </button>
+              ${url ? `
+                <a href="${url}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px; text-decoration: none;">
+                  🌐 检查专楼原帖 ↗
+                </a>
+              ` : ''}
+            </div>
           </div>
         `;
       }
@@ -862,11 +901,25 @@
           <div class="card-title-row">
             <div>
               <span class="author-display-title">${diff.author}</span>
-              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                帖子标题: ${diff.thread_title || '未知'} · 解压密码: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">${diff.password}</code>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span>论坛专楼:</span>
+                <a href="${currentAuthorThreadUrl}" target="_blank" rel="noopener noreferrer" 
+                   style="color: var(--accent-primary); text-decoration: underline; font-weight: 500; display: inline-flex; align-items: center; gap: 3px;"
+                   title="在浏览器新窗口打开 F95zone 原帖: ${currentAuthorThreadUrl}">
+                  ${diff.thread_title || currentAuthorThreadUrl} ↗
+                </a>
+                <span style="color: var(--border-color);">·</span>
+                <span>解压密码:</span>
+                <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; color: #fbbf24;">${diff.password}</code>
               </div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <a href="${currentAuthorThreadUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px; text-decoration: none;" title="在浏览器新窗口打开 F95zone 专楼原帖">
+                🌐 访问专楼 ↗
+              </a>
+              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px; color: #f87171; border-color: rgba(248, 113, 113, 0.3);" onclick="unbindAuthorThread('${diff.author}')" title="解除当前专楼绑定，重新选择或输入链接">
+                🔗 解绑重选
+              </button>
               <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="openAuthorFolder('${diff.author}', this)" title="在 Windows 资源管理器中打开此作者目录">
                 📂 打开本地目录
               </button>
