@@ -780,19 +780,50 @@
 
     let currentAuthorThreadUrl = "";
 
-    async function openAuthorFolder(authorName) {
+    async function openAuthorFolder(authorName, btn, subpath = null) {
+      if (!btn && window.event) {
+        btn = window.event.currentTarget || window.event.target;
+      }
+      const isButton = btn && (btn.tagName === 'BUTTON' || btn.classList.contains('btn'));
+      const origText = isButton ? btn.innerHTML : '';
+      if (isButton) {
+        btn.innerHTML = '⏳ 正在打开...';
+        btn.disabled = true;
+      }
       try {
+        const payload = { author: authorName };
+        if (subpath) payload.subpath = subpath;
         const res = await fetch('/api/authors/open_folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ author: authorName })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (data.status !== 'ok') {
+        if (data.status === 'ok') {
+          if (isButton) {
+            btn.innerHTML = '✔ 已在资源管理器打开';
+            setTimeout(() => {
+              btn.innerHTML = origText || '📂 打开本地目录';
+              btn.disabled = false;
+            }, 2000);
+          } else if (btn) {
+            const oldBg = btn.style.background;
+            btn.style.background = 'rgba(16, 185, 129, 0.4)';
+            setTimeout(() => { btn.style.background = oldBg; }, 1500);
+          }
+        } else {
           alert('打开目录失败: ' + (data.detail || '未找到文件夹'));
+          if (isButton) {
+            btn.innerHTML = origText || '📂 打开本地目录';
+            btn.disabled = false;
+          }
         }
       } catch (e) {
         alert('无法打开本地文件夹: ' + e.message);
+        if (isButton) {
+          btn.innerHTML = origText || '📂 打开本地目录';
+          btn.disabled = false;
+        }
       }
     }
 
@@ -833,7 +864,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="openAuthorFolder('${diff.author}')" title="在 Windows 资源管理器中打开此作者目录">
+              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="openAuthorFolder('${diff.author}', this)" title="在 Windows 资源管理器中打开此作者目录">
                 📂 打开本地目录
               </button>
               <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fetchDiff('${diff.author}', currentAuthorThreadUrl, true)" title="强制穿透缓存重新扫描">
@@ -911,7 +942,7 @@
           ${r.exists_locally && r.matched_asset ? `
             <div style="font-size: 11px; color: #34d399; margin: 4px 0 2px 0; display: flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="已匹配本地文件: ${r.matched_asset}">
               <span>🎯 已匹配:</span>
-              <code style="background: rgba(16, 185, 129, 0.15); padding: 1px 5px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; max-width: 220px;" title="${r.matched_asset}">${r.matched_asset}</code>
+              <code onclick="openAuthorFolder('${author}', this, '${r.matched_asset.replace(/'/g, "\\'")}')" style="background: rgba(16, 185, 129, 0.15); padding: 2px 6px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; max-width: 220px; cursor: pointer; text-decoration: underline;" title="点击在本地资源管理器中高亮定位此文件">${r.matched_asset} ↗</code>
             </div>
           ` : ''}
 
