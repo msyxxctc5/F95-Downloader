@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local user configuration and credentials (CRITICAL: Do not leak xf_user cookie)
+config.json
+data/
+downloads/
+
+# Test and temporary inspection files
+*.log
+*.tmp
+*.txt
+!requirements.txt
+*.html
+*.js
+!masked.js
+!static/*
+diff_result.json
+kidmo_sample.json
+test_*.py
+check_hosts.py
+
+# OS / Editor files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

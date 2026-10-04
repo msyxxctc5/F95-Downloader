@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AkinaSync - F95zone 收藏集智能更新器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --bg-card: rgba(18, 24, 38, 0.7);
+      --bg-card-hover: rgba(26, 34, 53, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(99, 102, 241, 0.25);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-primary: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Navigation */
+    header {
+      height: 64px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(11, 15, 25, 0.8);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-badge {
+      background: var(--accent-gradient);
+      color: white;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent-gradient);
+      color: white;
+      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+    }
+    .btn-primary:hover {
+      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.5);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-color);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: white;
+    }
+
+    /* Main Layout */
+    .container {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 64px);
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 320px;
+      border-right: 1px solid var(--border-color);
+      background: rgba(15, 21, 34, 0.6);
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-box {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--accent-primary);
+    }
+
+    .author-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .author-item {
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+    .author-item:hover {
+      background: var(--bg-card-hover);
+    }
+    .author-item.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    .author-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow: hidden;
+    }
+    .author-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .author-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .badge-missing {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .badge-ok {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+    }
+
+    /* Content Area */
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Overview Header Card */
+    .author-header-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .author-display-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .thread-url-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .thread-input {
+      flex: 1;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: white;
+      font-size: 13px;
+      outline: none;
+    }
+    .thread-input:focus {
+      border-color: var(--accent-primary);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .stat-card {
+      background: rgba(18, 24, 38, 0.5);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    /* Diff Matrix Cards */
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .release-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .release-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .release-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-glow);
+    }
+    .release-card.missing {
+      border-color: rgba(245, 158, 11, 0.4);
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.08);
+    }
+
+    .release-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .release-month {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .mirror-btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .mirror-chip {
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mirror-chip:hover {
+      background: var(--accent-primary);
+      border-color: var(--accent-primary);
+      color: white;
+    }
+
+    .mirror-chip.primary-mirror {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.4);
+      color: #a5b4fc;
+    }
+
+    /* Bottom Floating Downloads Manager */
+    .download-drawer {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      width: 420px;
+      max-height: 380px;
+      background: rgba(15, 21, 34, 0.95);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      border-radius: var(--radius);
+      backdrop-filter: blur(16px);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      transform: translateY(120%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .download-drawer.active {
+      transform: translateY(0);
+    }
+
+    .drawer-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .drawer-list {
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 280px;
+    }
+
+    .job-item {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .job-info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .progress-bar-container {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent-gradient);
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal {
+      width: 480px;
+      background: #131a29;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      AkinaSync
+      <span class="brand-badge">F95 Updater</span>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-secondary" onclick="openIngestModal()">
+        📥 Downloads 待归档箱 (<span id="ingestCount">0</span>)
+      </button>
+      <button class="btn btn-secondary" onclick="toggleSettingsModal()">
+        ⚙ 设置 & Cookie
+      </button>
+      <button class="btn btn-primary" id="btnDrawerToggle" onclick="toggleDrawer()">
+        ⬇ 任务队列 (<span id="activeJobCount">0</span>)
+      </button>
+    </div>
+  </header>
+
+  <!-- Container -->
+  <div class="container">
+    
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="搜索作者 (共 190 个)..." oninput="filterAuthors()">
+      </div>
+      <div class="author-list" id="authorList">
+        <div style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">
+          加载本地作者列表中...
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="content-area" id="contentArea">
+      <div style="margin: auto; text-align: center; color: var(--text-muted);">
+        <h2>👈 请在左侧选择一个作者</h2>
+        <p style="margin-top: 8px; font-size: 13px;">系统将自动拉取对应 F95zone 专楼并智能比对本地缺失的更新月份</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Download Drawer -->
+  <div class="download-drawer" id="downloadDrawer">
+    <div class="drawer-header">
+      <span>正在进行的下载任务</span>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearFinishedJobs()">清空已完成</button>
+        <button style="background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="toggleDrawer()">✕</button>
+      </div>
+    </div>
+    <div class="drawer-list" id="drawerJobList">
+      <div style="text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px;">
+        暂无运行中的任务
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal">
+      <h3 style="font-size: 18px;">配置选项</h3>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="font-size: 12px; color: var(--text-muted);">F95zone xf_user Cookie:</label>
+        <input type="text" id="settingXfUser" class="thread-input" placeholder="如 2957989%2C...">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="font-size: 12px; color: var(--text-muted);">收藏集根目录:</label>
+        <input type="text" id="settingLibRoot" class="thread-input" value="H:\akinaclub">
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 6px;">
+        <input type="checkbox" id="settingAutoDelete" checked>
+        <label for="settingAutoDelete">解压后自动删除源压缩包</label>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+        <button class="btn btn-secondary" onclick="toggleSettingsModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Downloads Ingest Modal -->
+  <div class="modal-overlay" id="ingestModal">
+    <div class="modal" style="width: 580px; max-height: 80vh; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 18px;">📥 Downloads 待归档压缩包</h3>
+        <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="loadDownloadsList()">🔄 刷新扫描</button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted);">在浏览器下载完成后，在此一键自动解压并归类到当前作者月份目录：</p>
+      
+      <div id="ingestFileList" style="overflow-y: auto; max-height: 340px; display: flex; flex-direction: column; gap: 8px; margin: 10px 0;">
+        <div style="text-align: center; color: var(--text-muted); padding: 20px;">正在扫描 Downloads 文件夹...</div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-secondary" onclick="toggleIngestModal()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authorsData = [];
+    let currentAuthor = null;
+    let currentDiff = null;
+
+    async function init() {
+      await loadConfig();
+      await loadAuthors();
+      updateIngestCount();
+      setInterval(pollJobs, 1500);
+      setInterval(updateIngestCount, 4000);
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        const cfg = await res.json();
+        document.getElementById('settingXfUser').value = cfg.xf_user || '';
+        document.getElementById('settingLibRoot').value = cfg.library_root || 'H:\\akinaclub';
+        document.getElementById('settingAutoDelete').checked = cfg.delete_archive_after_extract ?? true;
+      } catch (e) {
+        console.error("Failed to load config", e);
+      }
+    }
+
+    async function saveSettings() {
+      const payload = {
+        xf_user: document.getElementById('settingXfUser').value.trim(),
+        library_root: document.getElementById('settingLibRoot').value.trim(),
+        delete_archive_after_extract: document.getElementById('settingAutoDelete').checked
+      };
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      toggleSettingsModal();
+      loadAuthors();
+    }
+
+    function toggleSettingsModal() {
+      document.getElementById('settingsModal').classList.toggle('active');
+    }
+
+    function toggleDrawer() {
+      document.getElementById('downloadDrawer').classList.toggle('active');
+    }
+
+    async function loadAuthors() {
+      const res = await fetch('/api/authors');
+      authorsData = await res.json();
+      renderAuthorList(authorsData);
+      
+      // Auto-select Kidmo if present
+      const kidmo = authorsData.find(a => a.name.toLowerCase() === 'kidmo');
+      if (kidmo) {
+        selectAuthor(kidmo.name);
+      }
+    }
+
+    function filterAuthors() {
+      const q = document.getElementById('searchInput').value.toLowerCase();
+      const filtered = authorsData.filter(a => a.name.toLowerCase().includes(q));
+      renderAuthorList(filtered);
+    }
+
+    function renderAuthorList(list) {
+      const el = document.getElementById('authorList');
+      if (list.length === 0) {
+        el.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">未找到匹配作者</div>';
+        return;
+      }
+      el.innerHTML = list.map(a => `
+        <div class="author-item ${currentAuthor === a.name ? 'active' : ''}" onclick="selectAuthor('${a.name}')">
+          <div class="author-info">
+            <span class="author-name">${a.name}</span>
+            <span class="author-meta">已归档 ${a.month_count} 个月份 ${a.latest_month ? '· 最新: ' + a.latest_month : ''}</span>
+          </div>
+          <div>
+            ${a.missing_count > 0 ? `<span class="badge badge-missing">缺 ${a.missing_count}</span>` : (a.thread_url ? `<span class="badge badge-ok">已绑</span>` : '')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function selectAuthor(name) {
+      currentAuthor = name;
+      renderAuthorList(authorsData);
+      
+      const author = authorsData.find(a => a.name === name);
+      renderAuthorLoading(name, author?.thread_url);
+
+      if (author && author.thread_url) {
+        await fetchDiff(name, author.thread_url);
+      } else {
+        renderAuthorEmptyThread(name);
+      }
+    }
+
+    function renderAuthorLoading(name, url) {
+      const content = document.getElementById('contentArea');
+      content.innerHTML = `
+        <div class="author-header-card">
+          <div class="card-title-row">
+            <span class="author-display-title">${name}</span>
+          </div>
+          <p style="color: var(--text-muted); font-size: 14px;">正在连接 F95zone 专楼并执行智能 Diff 查缺补漏...</p>
+        </div>
+      `;
+    }
+
+    async function renderAuthorEmptyThread(name) {
+      const content = document.getElementById('contentArea');
+      content.innerHTML = `
+        <div class="author-header-card">
+          <div class="card-title-row">
+            <span class="author-display-title">${name}</span>
+          </div>
+          <div class="thread-url-row">
+            <input type="text" id="customThreadUrl" class="thread-input" placeholder="输入该作者在 F95zone 上的专楼链接 (例如 https://f95zone.to/threads/...)">
+            <button class="btn btn-primary" onclick="bindAndDiff('${name}')">绑定并扫描更新</button>
+          </div>
+        </div>
+        
+        <div style="margin-top: 10px;">
+          <div class="section-title">
+            <span>🔍 自动检索到的 F95zone 候选专楼</span>
+            <span id="searchStatus" style="font-size: 12px; color: var(--text-muted); font-weight: normal;">正在全网检索中...</span>
+          </div>
+          <div id="searchCandidateList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+      `;
+
+      try {
+        const res = await fetch(`/api/f95/search?q=${encodeURIComponent(name)}`);
+        const list = await res.json();
+        const candListEl = document.getElementById('searchCandidateList');
+        const statusEl = document.getElementById('searchStatus');
+        
+        if (list.length === 0) {
+          statusEl.innerText = "未检索到匹配专楼，请手动粘贴链接";
+          return;
+        }
+
+        statusEl.innerText = `找到 ${list.length} 个相关主题`;
+        candListEl.innerHTML = list.map(item => `
+          <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 14px;">
+            <div style="overflow: hidden;">
+              <a href="${item.url}" target="_blank" style="color: white; font-weight: 600; font-size: 14px; text-decoration: none;" title="新窗口预览帖子">${item.title} ↗</a>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">${item.snippet || item.url}</div>
+            </div>
+            <button class="btn btn-primary" style="flex-shrink: 0; padding: 6px 12px; font-size: 12px;" onclick="bindCandidateUrl('${name}', '${item.url}')">
+              ✔ 绑定此专楼
+            </button>
+          </div>
+        `).join('');
+
+      } catch (e) {
+        document.getElementById('searchStatus').innerText = "检索出错: " + e.message;
+      }
+    }
+
+    async function bindCandidateUrl(name, url) {
+      document.getElementById('customThreadUrl').value = url;
+      await bindAndDiff(name);
+    }
+
+    async function bindAndDiff(name) {
+      const url = document.getElementById('customThreadUrl').value.trim();
+      if (!url) return alert('请输入 F95zone 帖子链接');
+      
+      await fetch('/api/authors/bind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: name, thread_url: url })
+      });
+      
+      const a = authorsData.find(item => item.name === name);
+      if (a) a.thread_url = url;
+      
+      fetchDiff(name, url);
+    }
+
+    async function fetchDiff(name, url) {
+      try {
+        const res = await fetch(`/api/diff?author=${encodeURIComponent(name)}&thread_url=${encodeURIComponent(url)}`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Diff failed");
+        }
+        currentDiff = await res.json();
+        renderDiffView(currentDiff);
+      } catch (e) {
+        document.getElementById('contentArea').innerHTML = `
+          <div class="author-header-card">
+            <div class="card-title-row">
+              <span class="author-display-title">${name}</span>
+            </div>
+            <div style="color: var(--danger); font-size: 14px;">获取失败: ${e.message}</div>
+            <button class="btn btn-secondary" style="width: 120px;" onclick="renderAuthorEmptyThread('${name}')">更换帖子链接</button>
+          </div>
+        `;
+      }
+    }
+
+    function renderDiffView(diff) {
+      const content = document.getElementById('contentArea');
+      
+      content.innerHTML = `
+        <!-- Author Info Card -->
+        <div class="author-header-card">
+          <div class="card-title-row">
+            <div>
+              <span class="author-display-title">${diff.author}</span>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                帖子标题: ${diff.thread_title || '未知'} · 解压密码: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">${diff.password}</code>
+              </div>
+            </div>
+            <div>
+              ${diff.missing_count > 0 ? `
+                <button class="btn btn-primary" onclick="downloadAllMissing('${diff.author}', '${diff.password}')">
+                  🚀 一键补齐所有缺失 (${diff.missing_count} 个月份)
+                </button>
+              ` : `
+                <span class="badge badge-ok" style="font-size: 13px; padding: 6px 12px;">已是最新版本 ✔</span>
+              `}
+            </div>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <span class="stat-label">本地已归档</span>
+              <span class="stat-value" style="color: var(--success);">${diff.local_months_count} <span style="font-size: 13px; font-weight: normal;">个月份</span></span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">F95 专楼发布</span>
+              <span class="stat-value">${diff.f95_months_count} <span style="font-size: 13px; font-weight: normal;">个月份</span></span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">待更新/缺失</span>
+              <span class="stat-value" style="color: ${diff.missing_count > 0 ? 'var(--warning)' : 'var(--text-muted)'};">${diff.missing_count} <span style="font-size: 13px; font-weight: normal;">个</span></span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">专楼网盘镜像数</span>
+              <span class="stat-value">${diff.releases.reduce((acc, r) => acc + r.mirrors_count, 0)} <span style="font-size: 13px; font-weight: normal;">条链接</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Missing Releases Section (If any) -->
+        ${diff.missing_count > 0 ? `
+          <div>
+            <div class="section-title">
+              <span>🔥 缺失待更新月份 (${diff.missing_count})</span>
+            </div>
+            <div class="release-grid">
+              ${diff.releases.filter(r => !r.exists_locally && r.month !== 'General').map(r => renderReleaseCard(diff.author, r, diff.password)).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- All Releases Section -->
+        <div>
+          <div class="section-title">
+            <span>📅 全部历史月份清单 (${diff.releases.length})</span>
+          </div>
+          <div class="release-grid">
+            ${diff.releases.map(r => renderReleaseCard(diff.author, r, diff.password)).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderReleaseCard(author, r, pwd) {
+      const isMissing = !r.exists_locally && r.month !== 'General';
+      const pixeldrainMirror = r.mirrors.find(m => m.mirror.includes('PIXELDRAIN'));
+      const defaultMirror = pixeldrainMirror || r.mirrors[0];
+
+      return `
+        <div class="release-card ${isMissing ? 'missing' : ''}">
+          <div class="release-card-top">
+            <span class="release-month">${r.month}</span>
+            <span class="badge ${r.exists_locally ? 'badge-ok' : 'badge-missing'}">
+              ${r.exists_locally ? '✔ 本地已归档' : '🆕 待下载'}
+            </span>
+          </div>
+
+          <div style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px;">
+            <span>可用网盘 (${r.mirrors_count}):</span>
+            <div class="mirror-btn-group">
+              ${r.mirrors.map(m => `
+                <span class="mirror-chip ${m.mirror.includes('PIXELDRAIN') ? 'primary-mirror' : ''}" 
+                      title="点击直接在浏览器中打开真实网盘" 
+                      onclick="openUnmaskedLink('${m.masked_url}')">
+                  ${m.mirror} ↗
+                </span>
+              `).join('')}
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px; margin-top: auto;">
+            ${pixeldrainMirror ? `
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-primary" style="flex: 1.2; justify-content: center; font-size: 11px; padding: 6px 8px; background: linear-gradient(135deg, #059669 0%, #10b981 100%);" 
+                        onclick="triggerIDMDownload('${author}', '${r.month}', '${pixeldrainMirror.masked_url}')">
+                  🚀 IDM 多线程下载
+                </button>
+                <button class="btn btn-secondary" style="flex: 1; justify-content: center; font-size: 11px; padding: 6px 8px;" 
+                        onclick="triggerDownload('${author}', '${r.month}', '${pixeldrainMirror.masked_url}', '${pwd}')">
+                  ⚡ 内置下载+归档
+                </button>
+              </div>
+            ` : (defaultMirror ? `
+              <button class="btn btn-secondary" style="width: 100%; justify-content: center; font-size: 12px; padding: 6px 10px;" 
+                      onclick="openUnmaskedLink('${defaultMirror.masked_url}')">
+                🌐 打开 ${defaultMirror.mirror} 下载 ↗
+              </button>
+            ` : '')}
+          </div>
+        </div>
+      `;
+    }
+
+    async function triggerIDMDownload(author, month, maskedUrl) {
+      try {
+        const res = await fetch(`/api/download/direct_url?masked_url=${encodeURIComponent(maskedUrl)}`);
+        const data = await res.json();
+        if (data.target_url) {
+          // Trigger browser download; IDM Chrome extension will automatically intercept!
+          const a = document.createElement('a');
+          a.href = data.target_url;
+          if (data.filename) a.download = data.filename;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          window.open(maskedUrl, '_blank');
+        }
+      } catch (e) {
+        window.open(maskedUrl, '_blank');
+      }
+    }
+
+    async function clearFinishedJobs() {
+      await fetch('/api/jobs/clear', { method: 'POST' });
+      pollJobs();
+    }
+
+    function toggleIngestModal() {
+      const modal = document.getElementById('ingestModal');
+      modal.classList.toggle('active');
+      if (modal.classList.contains('active')) {
+        loadDownloadsList();
+      }
+    }
+
+    function openIngestModal() {
+      toggleIngestModal();
+    }
+
+    async function updateIngestCount() {
+      try {
+        const res = await fetch('/api/downloads/scan');
+        const list = await res.json();
+        document.getElementById('ingestCount').innerText = list.length;
+      } catch (e) {}
+    }
+
+    async function loadDownloadsList() {
+      const listEl = document.getElementById('ingestFileList');
+      listEl.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 15px;">扫描中...</div>';
+      try {
+        const res = await fetch('/api/downloads/scan');
+        const list = await res.json();
+        document.getElementById('ingestCount').innerText = list.length;
+        if (list.length === 0) {
+          listEl.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 25px;">Downloads 文件夹中没有未归档的压缩包</div>';
+          return;
+        }
+
+        listEl.innerHTML = list.map(item => `
+          <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <div style="overflow: hidden;">
+              <div style="font-weight: 600; font-size: 13px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.filename}">${item.filename}</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                大小: ${item.size_mb} MB ${item.detected_month ? '· 识别月份: <b style="color:#6366f1">' + item.detected_month + '</b>' : ''}
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <input type="text" id="targetMonth_${encodeURIComponent(item.filename)}" 
+                     value="${item.detected_month || (currentDiff?.missing_months?.[0] || '2021-02')}" 
+                     style="width: 85px; padding: 4px 6px; font-size: 12px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 4px; color: white;" 
+                     placeholder="归档月份">
+              <button class="btn btn-primary" style="font-size: 11px; padding: 5px 10px;" 
+                      onclick="doIngest('${encodeURIComponent(item.path)}', '${encodeURIComponent(item.filename)}')">
+                解压归档 ➔
+              </button>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (e) {
+        listEl.innerHTML = `<div style="color: var(--danger); padding: 15px;">扫描失败: ${e.message}</div>`;
+      }
+    }
+
+    async function doIngest(encodedPath, encodedFilename) {
+      if (!currentAuthor) return alert("请先在左侧选择一个作者");
+      const path = decodeURIComponent(encodedPath);
+      const fname = decodeURIComponent(encodedFilename);
+      const monthInput = document.getElementById(`targetMonth_${encodedFilename}`);
+      const month = monthInput ? monthInput.value.trim() : "";
+      if (!month) return alert("请输入要归档的目标月份 (如 2021-02)");
+
+      const pwd = currentDiff?.password || "f95zone";
+      
+      const btn = event.target;
+      btn.innerText = "解压中...";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/downloads/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            archive_path: path,
+            author: currentAuthor,
+            month: month,
+            password: pwd
+          })
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+          alert(`✔ ${data.message}`);
+          loadDownloadsList();
+          // Refresh diff
+          const a = authorsData.find(item => item.name === currentAuthor);
+          if (a?.thread_url) {
+            fetchDiff(currentAuthor, a.thread_url);
+          }
+        } else {
+          alert(`✕ 归档失败: ${data.message}`);
+          btn.innerText = "解压归档 ➔";
+          btn.disabled = false;
+        }
+      } catch (e) {
+        alert(`✕ 请求出错: ${e.message}`);
+        btn.innerText = "解压归档 ➔";
+        btn.disabled = false;
+      }
+    }
+
+    function openUnmaskedLink(maskedUrl) {
+      // Directly open F95zone's redirect page in new browser tab
+      window.open(maskedUrl, '_blank');
+    }
+
+    async function triggerDownload(author, month, maskedUrl, pwd) {
+      if (!maskedUrl) return alert("无可用的下载镜像链接");
+      const res = await fetch('/api/download/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author: author,
+          month: month,
+          masked_url: maskedUrl,
+          password: pwd
+        })
+      });
+      const data = await res.json();
+      document.getElementById('downloadDrawer').classList.add('active');
+      pollJobs();
+    }
+
+    async function downloadAllMissing(author, pwd) {
+      if (!currentDiff) return;
+      const missingList = currentDiff.releases.filter(r => !r.exists_locally && r.month !== 'General');
+      for (const item of missingList) {
+        const mirror = item.mirrors.find(m => m.mirror.includes('PIXELDRAIN')) || item.mirrors[0];
+        if (mirror) {
+          await triggerDownload(author, item.month, mirror.masked_url, pwd);
+        }
+      }
+    }
+
+    async function pollJobs() {
+      try {
+        const res = await fetch('/api/jobs');
+        const jobs = await res.json();
+        const jids = Object.keys(jobs);
+        
+        document.getElementById('activeJobCount').innerText = jids.filter(k => ['PENDING', 'UNMASKING', 'DOWNLOADING', 'EXTRACTING'].includes(jobs[k].status)).length;
+
+        const listEl = document.getElementById('drawerJobList');
+        if (jids.length === 0) {
+          listEl.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px;">暂无运行中的任务</div>';
+          return;
+        }
+
+        listEl.innerHTML = jids.map(jid => {
+          const j = jobs[jid];
+          let statusText = j.status;
+          let statusColor = "var(--text-muted)";
+          if (j.status === "DOWNLOADING") { statusText = `正在下载 (${j.speed})`; statusColor = "#6366f1"; }
+          if (j.status === "EXTRACTING") { statusText = "正在自动解压归档..."; statusColor = "#f59e0b"; }
+          if (j.status === "COMPLETED") { statusText = "✔ 归档完成"; statusColor = "#10b981"; }
+          if (j.status === "FAILED") { statusText = "✕ 失败: " + j.error; statusColor = "#ef4444"; }
+
+          return `
+            <div class="job-item">
+              <div class="job-info-row">
+                <strong style="color: white;">${j.author} · ${j.month}</strong>
+                <span style="color: ${statusColor}; font-weight: 500;">${statusText}</span>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" style="width: ${j.progress}%;"></div>
+              </div>
+              <div class="job-info-row" style="color: var(--text-muted); font-size: 11px;">
+                <span>${j.progress}%</span>
+                <span>${(j.downloaded_size / (1024*1024)).toFixed(1)} MB ${j.total_size ? '/ ' + (j.total_size / (1024*1024)).toFixed(1) + ' MB' : ''}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+      } catch (e) {
+        // silent
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
