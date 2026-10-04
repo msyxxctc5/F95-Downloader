@@ -112,13 +112,51 @@ def bind_author_thread(req: BindArtistRequest):
     save_artists(saved)
     return {"status": "ok", "artist": saved[req.author]}
 
+def launch_explorer_interactive(target_path: str, is_file: bool = False):
+    import subprocess
+    norm = os.path.normpath(target_path)
+    if is_file:
+        tr_cmd = f'explorer.exe /select,"{norm}"'
+    else:
+        tr_cmd = f'explorer.exe "{norm}"'
+        
+    tn = "F95_OpenFolder"
+    try:
+        # Use Windows Task Scheduler with /it (Interactive) to break through virtual desktop isolation
+        subprocess.run([
+            'schtasks', '/create',
+            '/tn', tn,
+            '/tr', tr_cmd,
+            '/sc', 'once',
+            '/st', '00:00',
+            '/it',
+            '/f'
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        subprocess.run(['schtasks', '/run', '/tn', tn], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        si = subprocess.STARTUPINFO()
+        si.lpDesktop = r"WinSta0\default"
+        try:
+            if is_file:
+                subprocess.Popen(['explorer.exe', f'/select,{norm}'], startupinfo=si)
+            else:
+                subprocess.Popen(['explorer.exe', norm], startupinfo=si)
+            return True
+        except Exception:
+            try:
+                os.startfile(norm)
+                return True
+            except Exception:
+                return False
+
 class OpenFolderRequest(BaseModel):
     author: str
     subpath: Optional[str] = None
 
 @app.post("/api/authors/open_folder")
 def open_author_folder(req: OpenFolderRequest):
-    import subprocess
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
     target = lib_root / req.author
@@ -137,22 +175,11 @@ def open_author_folder(req: OpenFolderRequest):
         raise HTTPException(status_code=404, detail=f"Directory or file '{target}' not found")
         
     norm_path = os.path.normpath(str(target.resolve()))
-    try:
-        if target.is_file():
-            # If target is a file, open explorer with the file selected
-            subprocess.Popen(['explorer.exe', f'/select,{norm_path}'])
-        else:
-            if hasattr(os, 'startfile'):
-                os.startfile(norm_path)
-            else:
-                subprocess.Popen(['explorer.exe', norm_path])
+    success = launch_explorer_interactive(norm_path, is_file=target.is_file())
+    if success:
         return {"status": "ok", "opened": norm_path}
-    except Exception as e:
-        try:
-            subprocess.Popen(['explorer.exe', norm_path])
-            return {"status": "ok", "opened": norm_path}
-        except Exception as e2:
-            raise HTTPException(status_code=500, detail=f"无法打开路径: {str(e2)}")
+    else:
+        raise HTTPException(status_code=500, detail="无法启动 Windows 资源管理器")
 
 @app.get("/api/diff")
 def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool = False):

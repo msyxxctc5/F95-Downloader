@@ -800,6 +800,9 @@
         });
         const data = await res.json();
         if (data.status === 'ok') {
+          if (data.opened && navigator.clipboard) {
+            navigator.clipboard.writeText(data.opened).catch(() => {});
+          }
           if (isButton) {
             btn.innerHTML = '✔ 已在资源管理器打开';
             setTimeout(() => {
