@@ -158,11 +158,32 @@ def parse_f95_thread_universal(url: str) -> Dict[str, Any]:
         "releases": items_by_label
     }
 
+import time
+from config import get_request_cookies, load_config
+from scanner import scan_author_directory, scan_author_directory_cached, normalize_month
+
+_f95_thread_cache: Dict[str, Any] = {}
+
+def get_f95_data_cached(url: str, force: bool = False, ttl_seconds: int = 600) -> Dict[str, Any]:
+    global _f95_thread_cache
+    now = time.time()
+    if not force and url in _f95_thread_cache:
+        cached = _f95_thread_cache[url]
+        if now - cached["timestamp"] < ttl_seconds:
+            return cached["data"]
+            
+    fresh = parse_f95_thread_universal(url)
+    _f95_thread_cache[url] = {
+        "timestamp": now,
+        "data": fresh
+    }
+    return fresh
+
 def check_local_existence(label: str, local_data: Dict[str, Any]) -> bool:
     """
     Fuzzy checks if a release label exists in local author directory:
     - By month: e.g. "2021-03" in local_data["months"]
-    - By term / name: substring search or keyword matching in all local folder names or files
+    - By term / name: substring search or keyword matching against cached all_names (0 disk I/O)
     """
     norm_lbl = label.lower().strip()
     
@@ -170,25 +191,33 @@ def check_local_existence(label: str, local_data: Dict[str, Any]) -> bool:
     if label in local_data.get("months", []):
         return True
         
-    # 2. Check in all local items (files and subfolders)
-    path = Path(local_data.get("path", ""))
-    if not path.exists():
-        return False
-        
     clean_keyword = re.sub(r'[^a-z0-9]', '', norm_lbl)
     if not clean_keyword:
         return False
 
-    # Extract significant words (e.g. "kaiju", "sono", "bisque", "doll")
     significant_words = [w for w in re.split(r'[^a-z0-9]+', norm_lbl) if len(w) >= 3 and w not in ('the', 'and', 'part', 'vol')]
+
+    # Check against cached all_names list in memory first (0 disk I/O)
+    all_names = local_data.get("all_names")
+    if all_names:
+        for name in all_names:
+            clean_name = re.sub(r'[^a-z0-9]', '', name)
+            if clean_keyword in clean_name:
+                return True
+            if significant_words and all(w in clean_name for w in significant_words):
+                return True
+        return False
+
+    # Fallback to disk scan only if all_names is missing
+    path = Path(local_data.get("path", ""))
+    if not path.exists():
+        return False
 
     try:
         for entry in path.rglob("*"):
             clean_name = re.sub(r'[^a-z0-9]', '', entry.name.lower())
-            # Substring match (e.g. "kaijuno8" in "maplestar_kaijuno8_1080p")
             if clean_keyword in clean_name:
                 return True
-            # Word set match if significant words exist
             if significant_words and all(w in clean_name for w in significant_words):
                 return True
     except Exception:
@@ -196,13 +225,13 @@ def check_local_existence(label: str, local_data: Dict[str, Any]) -> bool:
 
     return False
 
-def compare_local_vs_f95(author_name: str, thread_url: str) -> Dict[str, Any]:
+def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False) -> Dict[str, Any]:
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
     author_path = lib_root / author_name
 
-    local_data = scan_author_directory(author_path)
-    f95_data = parse_f95_thread_universal(thread_url)
+    local_data = scan_author_directory_cached(author_path, force=force)
+    f95_data = get_f95_data_cached(thread_url, force=force)
     releases_dict = f95_data.get("releases", {})
 
     diff_list = []

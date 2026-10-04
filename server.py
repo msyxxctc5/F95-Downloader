@@ -81,11 +81,11 @@ def update_config(req: ConfigUpdateRequest):
     return {"status": "ok", "config": cfg}
 
 @app.get("/api/authors")
-def list_local_authors():
+def list_local_authors(force: bool = False):
     cfg = load_config()
     lib_root = cfg.get("library_root", r"H:\akinaclub")
     saved = get_saved_artists()
-    authors = scan_all_authors(lib_root)
+    authors = scan_all_authors(lib_root, force=force)
     # Merge with saved thread info
     for a in authors:
         info = saved.get(a["name"])
@@ -113,14 +113,14 @@ def bind_author_thread(req: BindArtistRequest):
     return {"status": "ok", "artist": saved[req.author]}
 
 @app.get("/api/diff")
-def get_author_diff(author: str, thread_url: Optional[str] = None):
+def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool = False):
     saved = get_saved_artists()
     url = thread_url or (saved.get(author, {}).get("thread_url"))
     if not url:
         raise HTTPException(status_code=400, detail="No F95zone thread URL provided or bound for this author.")
     
     try:
-        res = compare_local_vs_f95(author, url)
+        res = compare_local_vs_f95(author, url, force=force)
         # Update missing count in saved
         if author in saved:
             saved[author]["missing_count"] = res.get("missing_count", 0)
@@ -150,6 +150,7 @@ def start_download(req: StartDownloadRequest, background_tasks: BackgroundTasks)
     return {"status": "started", "job_id": job_id}
 
 from ingest import scan_downloads_folder, ingest_archive_to_library
+from scanner import invalidate_author_cache
 
 class IngestRequest(BaseModel):
     archive_path: str
@@ -163,7 +164,10 @@ def scan_downloads_endpoint():
 
 @app.post("/api/downloads/ingest")
 def ingest_endpoint(req: IngestRequest):
-    return ingest_archive_to_library(req.archive_path, req.author, req.month, req.password or "f95zone")
+    res = ingest_archive_to_library(req.archive_path, req.author, req.month, req.password or "f95zone")
+    if res.get("status") == "ok":
+        invalidate_author_cache(req.author)
+    return res
 
 from idm_helper import download_with_idm, find_idm_path
 from downloader import resolve_direct_download_url

@@ -81,8 +81,10 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             "error": str(e)
         }
 
+    all_names: List[str] = []
     for entry in entries:
         try:
+            all_names.append(entry.name.lower())
             if entry.is_file():
                 file_count += 1
                 total_size += entry.stat().st_size
@@ -105,6 +107,7 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                         year = year_match.group(0)
                         # Check sub-month directories inside year folder (e.g. 01, 02, 1, 2)
                         for sub_entry in entry.iterdir():
+                            all_names.append(sub_entry.name.lower())
                             sub_month = re.fullmatch(r'(0?[1-9]|1[0-2])', sub_entry.name.strip())
                             if sub_month:
                                 sub_m = f"{year}-{int(sub_month.group(1)):02d}"
@@ -114,6 +117,15 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                                 other_items.append(f"{entry.name}/{sub_entry.name}")
                     else:
                         other_items.append(entry.name)
+                # Index sub-entries up to 2 levels deep (avoids freezing on huge image sequences)
+                try:
+                    for sub in entry.iterdir():
+                        all_names.append(sub.name.lower())
+                        if sub.is_dir():
+                            for sub2 in sub.iterdir():
+                                all_names.append(sub2.name.lower())
+                except Exception:
+                    pass
         except Exception:
             continue
 
@@ -126,33 +138,127 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
         "month_count": len(sorted_months),
         "total_size_mb": round(total_size / (1024 * 1024), 2),
         "file_count": file_count,
-        "other_items_sample": other_items[:5]
+        "other_items_sample": other_items[:5],
+        "all_names": list(set(all_names))
     }
 
-def scan_all_authors(root_dir: str = r"H:\akinaclub") -> List[Dict[str, Any]]:
+import json
+
+CACHE_DIR = Path(__file__).parent / "data"
+CACHE_FILE = CACHE_DIR / "library_cache.json"
+_memory_cache: Dict[str, Any] = {}
+
+def get_dir_signature(p: Path) -> float:
     """
-    Scans the entire library root directory for all authors.
+    Computes a fast modification signature using directory and sub-directory st_mtime.
+    Requires no recursive deep scanning.
+    """
+    try:
+        sig = p.stat().st_mtime
+        for sub in p.iterdir():
+            if sub.is_dir():
+                m = sub.stat().st_mtime
+                if m > sig:
+                    sig = m
+        return sig
+    except Exception:
+        return 0.0
+
+def load_library_cache() -> Dict[str, Any]:
+    global _memory_cache
+    if _memory_cache:
+        return _memory_cache
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                _memory_cache = json.load(f)
+                return _memory_cache
+        except Exception:
+            _memory_cache = {}
+    return _memory_cache
+
+def save_library_cache(cache: Dict[str, Any]):
+    global _memory_cache
+    _memory_cache = cache
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def invalidate_author_cache(author_name: str):
+    global _memory_cache
+    cache = load_library_cache()
+    if author_name in cache:
+        del cache[author_name]
+        save_library_cache(cache)
+
+def scan_author_directory_cached(author_dir: Path, force: bool = False) -> Dict[str, Any]:
+    """
+    Retrieves author data from cache if directory signature hasn't changed.
+    """
+    cache = load_library_cache()
+    name = author_dir.name
+    sig = get_dir_signature(author_dir)
+
+    if not force and name in cache and cache[name].get("sig") == sig:
+        return cache[name]["data"]
+
+    fresh_data = scan_author_directory(author_dir)
+    cache[name] = {"sig": sig, "data": fresh_data}
+    save_library_cache(cache)
+    return fresh_data
+
+def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> List[Dict[str, Any]]:
+    """
+    Scans the entire library root directory for all authors using mtime-signature caching.
+    If directory mtime has not changed, zero deep disk I/O is performed.
     """
     root = Path(root_dir)
     if not root.exists():
         return []
         
+    cache = load_library_cache()
     results = []
+    has_changes = False
+    current_names = set()
+
     for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
         if entry.is_dir() and not entry.name.startswith('.'):
-            results.append(scan_author_directory(entry))
+            name = entry.name
+            current_names.add(name)
+            sig = get_dir_signature(entry)
+
+            if not force and name in cache and cache[name].get("sig") == sig:
+                results.append(cache[name]["data"])
+            else:
+                data = scan_author_directory(entry)
+                cache[name] = {"sig": sig, "data": data}
+                results.append(data)
+                has_changes = True
+
+    # Evict deleted directories from cache
+    for stale in list(cache.keys()):
+        if stale not in current_names:
+            del cache[stale]
+            has_changes = True
+
+    if has_changes:
+        save_library_cache(cache)
             
     return results
 
 if __name__ == "__main__":
-    import json
-    # Quick test on Kidmo, Axsens, and Maplestar
-    test_authors = ["Kidmo", "Axsens", "Maplestar"]
-    for a in test_authors:
-        path = Path(r"H:\akinaclub") / a
-        res = scan_author_directory(path)
-        print(f"=== {a} ===")
-        print(f"Detected months count: {res['month_count']}")
-        print(f"Months: {res['months']}")
-        print(f"Latest month: {res['latest_month']}")
-        print()
+    import time
+    print("Testing cached scanning on H:\\akinaclub...")
+    t0 = time.time()
+    res1 = scan_all_authors()
+    t1 = time.time()
+    print(f"First run (populate/check cache): {len(res1)} authors scanned in {t1 - t0:.3f}s")
+
+    t2 = time.time()
+    res2 = scan_all_authors()
+    t3 = time.time()
+    print(f"Second run (100% cache hit): {len(res2)} authors verified in {t3 - t2:.3f}s")
+
