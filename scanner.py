@@ -53,13 +53,20 @@ def normalize_month(text: str) -> str:
                 
     return ""
 
+IGNORE_EXTENSIONS = {
+    '.txt', '.nfo', '.url', '.lnk', '.ini', '.db', '.ds_store', '.part',
+    '.tmp', '.log', '.md', '.html', '.htm', '.json', '.xml', '.yml', '.yaml'
+}
+
 def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
     """
-    Scans a single author directory and returns detected months, files, and structure.
+    Scans a single author directory and returns detected months, terms, media assets, and structure.
+    Filters out non-media garbage (.txt, .nfo, etc.) to prevent false positives.
     """
     detected_months: Set[str] = set()
+    detected_terms: Set[str] = set()
+    media_assets: List[Dict[str, Any]] = []
     month_details: Dict[str, List[str]] = {}
-    other_items: List[str] = []
     total_size = 0
     file_count = 0
 
@@ -68,6 +75,9 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             "name": author_dir.name,
             "path": str(author_dir),
             "months": [],
+            "terms": [],
+            "media_assets": [],
+            "all_names": [],
             "error": "Directory does not exist"
         }
 
@@ -78,68 +88,137 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             "name": author_dir.name,
             "path": str(author_dir),
             "months": [],
+            "terms": [],
+            "media_assets": [],
+            "all_names": [],
             "error": str(e)
         }
 
-    all_names: List[str] = []
     for entry in entries:
+        if entry.name.startswith('.'):
+            continue
         try:
-            all_names.append(entry.name.lower())
             if entry.is_file():
+                ext = entry.suffix.lower()
+                if ext in IGNORE_EXTENSIONS:
+                    continue
                 file_count += 1
-                total_size += entry.stat().st_size
+                sz = entry.stat().st_size
+                total_size += sz
+                
+                # Check Month
                 m = normalize_month(entry.name)
                 if m:
                     detected_months.add(m)
                     month_details.setdefault(m, []).append(entry.name)
-                else:
-                    other_items.append(entry.name)
+                # Check Term
+                t_match = re.search(r'(Term\s*\d+|Pack\s*\d+|Vol(?:ume)?\.?\s*\d+)', entry.name, re.I)
+                if t_match:
+                    detected_terms.add(t_match.group(1).title())
+
+                media_assets.append({
+                    "name": entry.name,
+                    "rel_path": entry.name,
+                    "is_dir": False,
+                    "size_mb": round(sz / (1024 * 1024), 2)
+                })
+
             elif entry.is_dir():
                 # Direct subfolder month match (e.g. "2020.01", "202103")
                 m = normalize_month(entry.name)
                 if m:
                     detected_months.add(m)
                     month_details.setdefault(m, []).append(entry.name)
+                # Check Term
+                t_match = re.search(r'(Term\s*\d+|Pack\s*\d+|Vol(?:ume)?\.?\s*\d+)', entry.name, re.I)
+                if t_match:
+                    detected_terms.add(t_match.group(1).title())
+
+                media_assets.append({
+                    "name": entry.name,
+                    "rel_path": entry.name,
+                    "is_dir": True,
+                    "size_mb": 0
+                })
+
+                # Year folder transparency (e.g. "2021", "2022")
+                year_match = re.fullmatch(r'20\d{2}', entry.name.strip())
+                if year_match:
+                    year = year_match.group(0)
+                    for sub_entry in entry.iterdir():
+                        if sub_entry.name.startswith('.'):
+                            continue
+                        sub_m = re.fullmatch(r'(0?[1-9]|1[0-2])', sub_entry.name.strip())
+                        if sub_m:
+                            norm_m = f"{year}-{int(sub_m.group(1)):02d}"
+                            detected_months.add(norm_m)
+                            month_details.setdefault(norm_m, []).append(f"{entry.name}/{sub_entry.name}")
+                        else:
+                            if sub_entry.is_file() and sub_entry.suffix.lower() not in IGNORE_EXTENSIONS:
+                                media_assets.append({
+                                    "name": sub_entry.name,
+                                    "rel_path": f"{entry.name}/{sub_entry.name}",
+                                    "is_dir": False,
+                                    "size_mb": round(sub_entry.stat().st_size / (1024 * 1024), 2)
+                                })
                 else:
-                    # Check if it's a year folder (e.g. "2021", "2022")
-                    year_match = re.fullmatch(r'20\d{2}', entry.name.strip())
-                    if year_match:
-                        year = year_match.group(0)
-                        # Check sub-month directories inside year folder (e.g. 01, 02, 1, 2)
-                        for sub_entry in entry.iterdir():
-                            all_names.append(sub_entry.name.lower())
-                            sub_month = re.fullmatch(r'(0?[1-9]|1[0-2])', sub_entry.name.strip())
-                            if sub_month:
-                                sub_m = f"{year}-{int(sub_month.group(1)):02d}"
-                                detected_months.add(sub_m)
-                                month_details.setdefault(sub_m, []).append(f"{entry.name}/{sub_entry.name}")
-                            else:
-                                other_items.append(f"{entry.name}/{sub_entry.name}")
-                    else:
-                        other_items.append(entry.name)
-                # Index sub-entries up to 2 levels deep (avoids freezing on huge image sequences)
-                try:
-                    for sub in entry.iterdir():
-                        all_names.append(sub.name.lower())
-                        if sub.is_dir():
-                            for sub2 in sub.iterdir():
-                                all_names.append(sub2.name.lower())
-                except Exception:
-                    pass
+                    # Index sub-entries up to 2 levels deep
+                    try:
+                        for sub in entry.iterdir():
+                            if sub.name.startswith('.'):
+                                continue
+                            if sub.is_file():
+                                if sub.suffix.lower() not in IGNORE_EXTENSIONS:
+                                    media_assets.append({
+                                        "name": sub.name,
+                                        "rel_path": f"{entry.name}/{sub.name}",
+                                        "is_dir": False,
+                                        "size_mb": round(sub.stat().st_size / (1024 * 1024), 2)
+                                    })
+                            elif sub.is_dir():
+                                media_assets.append({
+                                    "name": sub.name,
+                                    "rel_path": f"{entry.name}/{sub.name}",
+                                    "is_dir": True,
+                                    "size_mb": 0
+                                })
+                                for sub2 in sub.iterdir():
+                                    if sub2.is_file() and sub2.suffix.lower() not in IGNORE_EXTENSIONS:
+                                        media_assets.append({
+                                            "name": sub2.name,
+                                            "rel_path": f"{entry.name}/{sub.name}/{sub2.name}",
+                                            "is_dir": False,
+                                            "size_mb": round(sub2.stat().st_size / (1024 * 1024), 2)
+                                        })
+                    except Exception:
+                        pass
         except Exception:
             continue
 
     sorted_months = sorted(list(detected_months))
+    sorted_terms = sorted(list(detected_terms))
+
+    # Detect dominant archive style
+    if len(sorted_months) >= 3:
+        style = "MONTHLY"
+    elif len(sorted_terms) >= 3:
+        style = "TERMS"
+    else:
+        style = "STANDALONE_WORKS"
+
     return {
         "name": author_dir.name,
         "path": str(author_dir),
+        "archive_style": style,
         "months": sorted_months,
+        "terms": sorted_terms,
         "latest_month": sorted_months[-1] if sorted_months else None,
         "month_count": len(sorted_months),
+        "term_count": len(sorted_terms),
         "total_size_mb": round(total_size / (1024 * 1024), 2),
         "file_count": file_count,
-        "other_items_sample": other_items[:5],
-        "all_names": list(set(all_names))
+        "media_assets": media_assets,
+        "all_names": list({a["name"].lower() for a in media_assets})
     }
 
 import json

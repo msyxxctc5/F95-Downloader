@@ -778,9 +778,28 @@
       fetchDiff(name, url);
     }
 
-    async function fetchDiff(name, url) {
+    let currentAuthorThreadUrl = "";
+
+    async function openAuthorFolder(authorName) {
       try {
-        const res = await fetch(`/api/diff?author=${encodeURIComponent(name)}&thread_url=${encodeURIComponent(url)}`);
+        const res = await fetch('/api/authors/open_folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author: authorName })
+        });
+        const data = await res.json();
+        if (data.status !== 'ok') {
+          alert('打开目录失败: ' + (data.detail || '未找到文件夹'));
+        }
+      } catch (e) {
+        alert('无法打开本地文件夹: ' + e.message);
+      }
+    }
+
+    async function fetchDiff(name, url, force = false) {
+      currentAuthorThreadUrl = url;
+      try {
+        const res = await fetch(`/api/diff?author=${encodeURIComponent(name)}&thread_url=${encodeURIComponent(url)}${force ? '&force=true' : ''}`);
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.detail || "Diff failed");
@@ -813,10 +832,16 @@
                 帖子标题: ${diff.thread_title || '未知'} · 解压密码: <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">${diff.password}</code>
               </div>
             </div>
-            <div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="openAuthorFolder('${diff.author}')" title="在 Windows 资源管理器中打开此作者目录">
+                📂 打开本地目录
+              </button>
+              <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fetchDiff('${diff.author}', currentAuthorThreadUrl, true)" title="强制穿透缓存重新扫描">
+                🔄 强制刷新
+              </button>
               ${diff.missing_count > 0 ? `
                 <button class="btn btn-primary" onclick="downloadAllMissing('${diff.author}', '${diff.password}')">
-                  🚀 一键补齐所有缺失 (${diff.missing_count} 个月份)
+                  🚀 一键补齐所有缺失 (${diff.missing_count} 项)
                 </button>
               ` : `
                 <span class="badge badge-ok" style="font-size: 13px; padding: 6px 12px;">已是最新版本 ✔</span>
@@ -828,15 +853,15 @@
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-label">本地已归档</span>
-              <span class="stat-value" style="color: var(--success);">${diff.local_months_count} <span style="font-size: 13px; font-weight: normal;">个月份</span></span>
+              <span class="stat-value" style="color: var(--success);">${diff.local_months_count} <span style="font-size: 13px; font-weight: normal;">项/月</span></span>
             </div>
             <div class="stat-card">
               <span class="stat-label">F95 专楼发布</span>
-              <span class="stat-value">${diff.f95_months_count} <span style="font-size: 13px; font-weight: normal;">个月份</span></span>
+              <span class="stat-value">${diff.f95_months_count} <span style="font-size: 13px; font-weight: normal;">项/月</span></span>
             </div>
             <div class="stat-card">
               <span class="stat-label">待更新/缺失</span>
-              <span class="stat-value" style="color: ${diff.missing_count > 0 ? 'var(--warning)' : 'var(--text-muted)'};">${diff.missing_count} <span style="font-size: 13px; font-weight: normal;">个</span></span>
+              <span class="stat-value" style="color: ${diff.missing_count > 0 ? 'var(--warning)' : 'var(--text-muted)'};">${diff.missing_count} <span style="font-size: 13px; font-weight: normal;">项</span></span>
             </div>
             <div class="stat-card">
               <span class="stat-label">专楼网盘镜像数</span>
@@ -849,7 +874,7 @@
         ${diff.missing_count > 0 ? `
           <div>
             <div class="section-title">
-              <span>🔥 缺失待更新月份 (${diff.missing_count})</span>
+              <span>🔥 缺失待更新 (${diff.missing_count})</span>
             </div>
             <div class="release-grid">
               ${diff.releases.filter(r => !r.exists_locally && r.month !== 'General').map(r => renderReleaseCard(diff.author, r, diff.password)).join('')}
@@ -860,7 +885,7 @@
         <!-- All Releases Section -->
         <div>
           <div class="section-title">
-            <span>📅 全部历史月份清单 (${diff.releases.length})</span>
+            <span>📅 全部作品/历史月份清单 (${diff.releases.length})</span>
           </div>
           <div class="release-grid">
             ${diff.releases.map(r => renderReleaseCard(diff.author, r, diff.password)).join('')}
@@ -882,6 +907,13 @@
               ${r.exists_locally ? '✔ 本地已归档' : '🆕 待下载'}
             </span>
           </div>
+
+          ${r.exists_locally && r.matched_asset ? `
+            <div style="font-size: 11px; color: #34d399; margin: 4px 0 2px 0; display: flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="已匹配本地文件: ${r.matched_asset}">
+              <span>🎯 已匹配:</span>
+              <code style="background: rgba(16, 185, 129, 0.15); padding: 1px 5px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; max-width: 220px;" title="${r.matched_asset}">${r.matched_asset}</code>
+            </div>
+          ` : ''}
 
           <div style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px;">
             <span>可用网盘 (${r.mirrors_count}):</span>

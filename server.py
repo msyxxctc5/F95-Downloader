@@ -112,6 +112,32 @@ def bind_author_thread(req: BindArtistRequest):
     save_artists(saved)
     return {"status": "ok", "artist": saved[req.author]}
 
+class OpenFolderRequest(BaseModel):
+    author: str
+    subpath: Optional[str] = None
+
+@app.post("/api/authors/open_folder")
+def open_author_folder(req: OpenFolderRequest):
+    import subprocess
+    cfg = load_config()
+    lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
+    target = lib_root / req.author
+    if req.subpath:
+        sub = target / req.subpath
+        if sub.exists():
+            target = sub
+    if not target.exists():
+        target = lib_root / req.author
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"Directory {target} not found")
+        
+    try:
+        os.startfile(str(target))
+        return {"status": "ok", "opened": str(target)}
+    except Exception:
+        subprocess.Popen(f'explorer "{target}"')
+        return {"status": "ok", "opened": str(target)}
+
 @app.get("/api/diff")
 def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool = False):
     saved = get_saved_artists()

@@ -179,51 +179,78 @@ def get_f95_data_cached(url: str, force: bool = False, ttl_seconds: int = 600) -
     }
     return fresh
 
-def check_local_existence(label: str, local_data: Dict[str, Any]) -> bool:
+from typing import Dict, List, Any, Optional, Set, Tuple
+
+def get_title_numbers(text: str) -> Set[int]:
+    base = re.sub(r'\.[a-zA-Z0-9]{2,5}$', '', text.lower())
+    base = re.sub(r'\b(1080p|720p|2160p|4k|30fps|60fps)\b', '', base)
+    return {int(n) for n in re.findall(r'\d+', base)}
+
+def check_local_existence(label: str, local_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
     Fuzzy checks if a release label exists in local author directory:
-    - By month: e.g. "2021-03" in local_data["months"]
-    - By term / name: substring search or keyword matching against cached all_names (0 disk I/O)
+    - Month match: returns (True, "2021-03")
+    - Term match: returns (True, "Term 154")
+    - Standalone work title match with version/number safety
+    Returns: (is_matched, matched_item_name_or_relpath)
     """
     norm_lbl = label.lower().strip()
     
-    # 1. Exact or normalized month match
+    # 1. Month match
     if label in local_data.get("months", []):
-        return True
+        return True, label
+
+    # 2. Term match
+    if label in local_data.get("terms", []):
+        return True, label
         
     clean_keyword = re.sub(r'[^a-z0-9]', '', norm_lbl)
     if not clean_keyword:
-        return False
+        return False, None
 
-    significant_words = [w for w in re.split(r'[^a-z0-9]+', norm_lbl) if len(w) >= 3 and w not in ('the', 'and', 'part', 'vol')]
+    # Extract core words (length >= 3, excluding generic tokens)
+    core_words = [w for w in re.split(r'[^a-z0-9]+', norm_lbl) if len(w) >= 3 and w not in ('the', 'and', 'part', 'vol', 'update')]
+    
+    # Extract version/numeric constraints
+    lbl_numbers = get_title_numbers(norm_lbl)
 
-    # Check against cached all_names list in memory first (0 disk I/O)
-    all_names = local_data.get("all_names")
-    if all_names:
-        for name in all_names:
-            clean_name = re.sub(r'[^a-z0-9]', '', name)
+    media_assets = local_data.get("media_assets", [])
+    if media_assets:
+        for asset in media_assets:
+            name_lower = asset["name"].lower()
+            clean_name = re.sub(r'[^a-z0-9]', '', name_lower)
+
+            # Strict version check: if label specifies numbers, asset MUST have them
+            if lbl_numbers:
+                asset_numbers = get_title_numbers(name_lower)
+                if not lbl_numbers.issubset(asset_numbers):
+                    continue
+
+            # Check clean keyword substring match
             if clean_keyword in clean_name:
-                return True
-            if significant_words and all(w in clean_name for w in significant_words):
-                return True
-        return False
+                return True, asset.get("rel_path") or asset["name"]
 
-    # Fallback to disk scan only if all_names is missing
-    path = Path(local_data.get("path", ""))
-    if not path.exists():
-        return False
+            # Check all core words match
+            if core_words and all(w in clean_name for w in core_words):
+                return True, asset.get("rel_path") or asset["name"]
 
-    try:
-        for entry in path.rglob("*"):
-            clean_name = re.sub(r'[^a-z0-9]', '', entry.name.lower())
-            if clean_keyword in clean_name:
-                return True
-            if significant_words and all(w in clean_name for w in significant_words):
-                return True
-    except Exception:
-        pass
+        return False, None
 
-    return False
+    # Fallback to all_names if media_assets not available
+    all_names = local_data.get("all_names", [])
+    for name in all_names:
+        name_lower = name.lower()
+        if lbl_numbers:
+            target_numbers = get_title_numbers(name_lower)
+            if not lbl_numbers.issubset(target_numbers):
+                continue
+        clean_name = re.sub(r'[^a-z0-9]', '', name_lower)
+        if clean_keyword in clean_name:
+            return True, name
+        if core_words and all(w in clean_name for w in core_words):
+            return True, name
+
+    return False, None
 
 def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False) -> Dict[str, Any]:
     cfg = load_config()
@@ -239,10 +266,11 @@ def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False)
     
     for lbl in all_labels:
         mirrors = releases_dict[lbl]
-        exists = check_local_existence(lbl, local_data)
+        exists, matched_asset = check_local_existence(lbl, local_data)
         diff_list.append({
             "month": lbl, # release label
             "exists_locally": exists,
+            "matched_asset": matched_asset,
             "status": "DOWNLOADED" if exists else "MISSING",
             "mirrors_count": len(mirrors),
             "mirrors": mirrors
