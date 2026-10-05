@@ -60,14 +60,14 @@ pip install -r requirements.txt
 将 `config.example.json` 复制为 `config.json`：
 ```json
 {
-  "library_root": "H:\\akinaclub",
+  "library_root": "./library",
   "download_dir": "./downloads",
   "seven_zip_path": "7z",
   "xf_user": "YOUR_XF_USER_COOKIE_HERE",
   "delete_archive_after_extract": false
 }
 ```
-* **`library_root`**：您的本地创作者收藏总目录（如 `H:\akinaclub`）。
+* **`library_root`**：您的本地创作者收藏总目录（如 `./library` 或 `D:\Library`）。
 * **`xf_user`**：您的 F95zone 登录凭证 Cookie（进入 F95zone 网页后，按 F12 打开开发者工具 -> Application -> Cookies -> 复制 `xf_user` 的值）。
 
 ### 3. 启动服务

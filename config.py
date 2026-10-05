@@ -20,7 +20,7 @@ CONFIG_FILE = Path(__file__).parent / "config.json"
 _file_lock = threading.Lock()
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "library_root": str(Path.home() / "Downloads" / "akinaclub"),
+    "library_root": str(Path.home() / "Downloads" / "library"),
     "xf_user": "",
     "cf_clearance": "",
     "full_cookie": "",
@@ -39,7 +39,7 @@ def get_library_root() -> Path:
     raw = cfg.get("library_root")
     if raw and str(raw).strip():
         return Path(raw).expanduser()
-    return Path.home() / "Downloads" / "akinaclub"
+    return Path.home() / "Downloads" / "library"
 
 def get_download_dir() -> Path:
     """Returns the resolved download directory from config, supporting relative paths."""
