@@ -3,7 +3,8 @@ import json
 import threading
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+import urllib.parse
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -15,6 +16,38 @@ from diff_engine import compare_local_vs_f95, unmask_f95_link
 from downloader import DownloadJob
 
 app = FastAPI(title="AkinaSync - F95zone Collection Updater")
+
+@app.middleware("http")
+async def validate_host_and_origin(request: Request, call_next):
+    host_header = request.headers.get("host", "")
+    hostname = host_header.split(":")[0].lower() if host_header else ""
+    allowed = {"127.0.0.1", "localhost", "testserver"}
+    if hostname and hostname not in allowed:
+        return Response(status_code=403, content="Forbidden: Invalid Host header")
+        
+    origin = request.headers.get("origin")
+    if origin:
+        try:
+            parsed_origin = urllib.parse.urlparse(origin)
+            if parsed_origin.hostname and parsed_origin.hostname.lower() not in allowed:
+                return Response(status_code=403, content="Forbidden: Cross-Origin Request Blocked")
+        except Exception:
+            return Response(status_code=403, content="Forbidden: Invalid Origin header")
+            
+    return await call_next(request)
+
+def is_valid_f95_thread_url(url: str) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        return (
+            parsed.scheme == "https"
+            and parsed.netloc.lower() in ("f95zone.to", "www.f95zone.to")
+            and parsed.path.startswith("/threads/")
+        )
+    except Exception:
+        return False
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -73,8 +106,9 @@ def mask_cookie_val(val: Optional[str]) -> str:
 def get_config():
     cfg = load_config()
     safe = cfg.copy()
-    if safe.get("xf_user"):
-        safe["xf_user_masked"] = mask_cookie_val(safe["xf_user"])
+    raw_xf = safe.pop("xf_user", None)
+    if raw_xf:
+        safe["xf_user_masked"] = mask_cookie_val(raw_xf)
         safe["has_xf_user"] = True
     else:
         safe["has_xf_user"] = False
@@ -83,14 +117,14 @@ def get_config():
 @app.post("/api/config")
 def update_config(req: ConfigUpdateRequest):
     cfg = load_config()
-    if req.xf_user is not None:
-        cfg["xf_user"] = req.xf_user
+    if req.xf_user is not None and req.xf_user.strip():
+        cfg["xf_user"] = req.xf_user.strip()
     if req.library_root is not None:
         cfg["library_root"] = req.library_root
     if req.delete_archive_after_extract is not None:
         cfg["delete_archive_after_extract"] = req.delete_archive_after_extract
     save_config(cfg)
-    return {"status": "ok", "config": cfg}
+    return {"status": "ok", "config": get_config()}
 
 @app.get("/api/authors")
 def list_local_authors(force: bool = False):
@@ -117,6 +151,8 @@ def search_author_threads(q: str):
 
 @app.post("/api/authors/bind")
 def bind_author_thread(req: BindArtistRequest):
+    if not is_valid_f95_thread_url(req.thread_url):
+        raise HTTPException(status_code=400, detail="非法专楼链接：仅支持 https://f95zone.to/threads/ 论坛原帖链接")
     saved = get_saved_artists()
     saved.setdefault(req.author, {})
     saved[req.author]["name"] = req.author
@@ -218,6 +254,8 @@ def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool =
     url = thread_url or (saved.get(author, {}).get("thread_url"))
     if not url:
         raise HTTPException(status_code=400, detail="No F95zone thread URL provided or bound for this author.")
+    if not is_valid_f95_thread_url(url):
+        raise HTTPException(status_code=400, detail="非法专楼链接：仅支持 https://f95zone.to/threads/ 论坛原帖链接")
     
     try:
         res = compare_local_vs_f95(author, url, force=force)

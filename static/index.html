@@ -612,7 +612,12 @@
       try {
         const res = await fetch('/api/config');
         const cfg = await res.json();
-        document.getElementById('settingXfUser').value = cfg.xf_user || '';
+        document.getElementById('settingXfUser').value = '';
+        if (cfg.has_xf_user) {
+          document.getElementById('settingXfUser').placeholder = `已配置: ${cfg.xf_user_masked} (留空保持不变)`;
+        } else {
+          document.getElementById('settingXfUser').placeholder = '输入 xf_user Cookie 凭据 (留空无法解析需登录资源)';
+        }
         document.getElementById('settingLibRoot').value = cfg.library_root || 'H:\\akinaclub';
         document.getElementById('settingAutoDelete').checked = cfg.delete_archive_after_extract ?? true;
       } catch (e) {
@@ -621,17 +626,21 @@
     }
 
     async function saveSettings() {
+      const newXf = document.getElementById('settingXfUser').value.trim();
       const payload = {
-        xf_user: document.getElementById('settingXfUser').value.trim(),
         library_root: document.getElementById('settingLibRoot').value.trim(),
         delete_archive_after_extract: document.getElementById('settingAutoDelete').checked
       };
+      if (newXf) {
+        payload.xf_user = newXf;
+      }
       await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       toggleSettingsModal();
+      await loadConfig();
       loadAuthors();
     }
 
