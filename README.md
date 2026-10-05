@@ -87,7 +87,7 @@ python -m uvicorn server:app --host 127.0.0.1 --port 8899 --reload
 .
 ├── config.py              # 配置管理与 Cookie 加载器
 ├── config.example.json    # 配置文件模板示例
-├── cookie_helper.py       # 智能 Cookie 探测与有效性校验
+├── fastcache.py           # 内存直读极速缓存与后台静默增量校验器
 ├── diff_engine.py         # 专楼全格式解析、通用标签提取与 Diff 对比引擎
 ├── downloader.py          # Pixeldrain 直链解析与异步下载流处理器
 ├── extractor.py           # 7-Zip 多密码静默解压与分类归位管道
