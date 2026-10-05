@@ -332,13 +332,21 @@ def get_author_diff(author: str, thread_url: Optional[str] = None, force: bool =
         logger.error("Unexpected error diffing author %s: %s", author, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+class JobActionRequest(BaseModel):
+    job_id: str
+
 @app.post("/api/download/start")
 def start_download(req: StartDownloadRequest, background_tasks: BackgroundTasks):
     job_id = f"{req.author}_{req.month}"
     if job_id in active_jobs:
         curr = active_jobs[job_id].status
-        if curr not in ("FAILED", "CANCELLED", "COMPLETED", "DONE"):
+        if curr not in ("FAILED", "CANCELLED", "COMPLETED", "DONE", "PAUSED"):
             return {"status": "already_running", "job_id": job_id}
+        if curr == "PAUSED":
+            job = active_jobs[job_id]
+            job.resume()
+            threading.Thread(target=job.run, daemon=True).start()
+            return {"status": "resumed", "job_id": job_id}
 
     job = DownloadJob(
         author=req.author,
@@ -353,6 +361,33 @@ def start_download(req: StartDownloadRequest, background_tasks: BackgroundTasks)
 
     threading.Thread(target=run_worker, daemon=True).start()
     return {"status": "started", "job_id": job_id}
+
+@app.post("/api/download/pause")
+def pause_download(req: JobActionRequest):
+    job = active_jobs.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="未找到指定的下载任务")
+    job.pause()
+    return {"status": "paused", "job_id": req.job_id}
+
+@app.post("/api/download/resume")
+def resume_download(req: JobActionRequest):
+    job = active_jobs.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="未找到指定的下载任务")
+    if job.status in ("DOWNLOADING", "EXTRACTING", "UNMASKING"):
+        return {"status": "already_running", "job_id": req.job_id}
+    job.resume()
+    threading.Thread(target=job.run, daemon=True).start()
+    return {"status": "resumed", "job_id": req.job_id}
+
+@app.post("/api/download/cancel")
+def cancel_download(req: JobActionRequest):
+    job = active_jobs.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="未找到指定的下载任务")
+    job.cancel()
+    return {"status": "cancelled", "job_id": req.job_id}
 
 class IngestRequest(BaseModel):
     archive_path: str
@@ -429,7 +464,7 @@ def unmask_endpoint(url: str):
 @app.post("/api/jobs/clear")
 def clear_jobs():
     global active_jobs
-    active_jobs = {k: v for k, v in active_jobs.items() if v.status in ("DOWNLOADING", "EXTRACTING")}
+    active_jobs = {k: v for k, v in active_jobs.items() if v.status in ("DOWNLOADING", "EXTRACTING", "PAUSED", "UNMASKING")}
     return {"status": "ok"}
 
 @app.get("/api/jobs")

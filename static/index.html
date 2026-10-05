@@ -1321,13 +1321,53 @@
       }
     }
 
+    async function pauseJob(jobId) {
+      try {
+        await fetch('/api/download/pause', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: jobId })
+        });
+        pollJobs();
+      } catch (e) {
+        alert('暂停失败: ' + e.message);
+      }
+    }
+
+    async function resumeJob(jobId) {
+      try {
+        await fetch('/api/download/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: jobId })
+        });
+        pollJobs();
+      } catch (e) {
+        alert('继续下载失败: ' + e.message);
+      }
+    }
+
+    async function cancelJob(jobId) {
+      if (!confirm('确定要取消此下载任务并清理临时文件吗？')) return;
+      try {
+        await fetch('/api/download/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: jobId })
+        });
+        pollJobs();
+      } catch (e) {
+        alert('取消失败: ' + e.message);
+      }
+    }
+
     async function pollJobs() {
       try {
         const res = await fetch('/api/jobs');
         const jobs = await res.json();
         const jids = Object.keys(jobs);
         
-        document.getElementById('activeJobCount').innerText = jids.filter(k => ['PENDING', 'UNMASKING', 'DOWNLOADING', 'EXTRACTING'].includes(jobs[k].status)).length;
+        document.getElementById('activeJobCount').innerText = jids.filter(k => ['PENDING', 'UNMASKING', 'DOWNLOADING', 'EXTRACTING', 'PAUSED'].includes(jobs[k].status)).length;
 
         const listEl = document.getElementById('drawerJobList');
         if (jids.length === 0) {
@@ -1340,9 +1380,15 @@
           let statusText = j.status;
           let statusColor = "var(--text-muted)";
           if (j.status === "DOWNLOADING") { statusText = `正在下载 (${j.speed})`; statusColor = "#6366f1"; }
+          if (j.status === "PAUSED") { statusText = "⏸ 已暂停"; statusColor = "#f59e0b"; }
+          if (j.status === "CANCELLED") { statusText = "❌ 已取消"; statusColor = "#94a3b8"; }
           if (j.status === "EXTRACTING") { statusText = "正在自动解压归档..."; statusColor = "#f59e0b"; }
           if (j.status === "COMPLETED") { statusText = "✔ 归档完成"; statusColor = "#10b981"; }
           if (j.status === "FAILED") { statusText = "✕ 失败: " + j.error; statusColor = "#ef4444"; }
+
+          const canPause = j.status === "DOWNLOADING";
+          const canResume = j.status === "PAUSED" || j.status === "FAILED";
+          const canCancel = ["DOWNLOADING", "PAUSED", "PENDING", "UNMASKING"].includes(j.status);
 
           return `
             <div class="job-item">
@@ -1357,6 +1403,25 @@
                 <span>${j.progress}%</span>
                 <span>${(j.downloaded_size / (1024*1024)).toFixed(1)} MB ${j.total_size ? '/ ' + (j.total_size / (1024*1024)).toFixed(1) + ' MB' : ''}</span>
               </div>
+              ${(canPause || canResume || canCancel) ? `
+                <div style="display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px;">
+                  ${canPause ? `
+                    <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 8px; border-radius: 4px;" onclick="pauseJob('${jid}')">
+                      ⏸ 暂停
+                    </button>
+                  ` : ''}
+                  ${canResume ? `
+                    <button class="btn btn-primary" style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: linear-gradient(135deg, #059669 0%, #10b981 100%);" onclick="resumeJob('${jid}')">
+                      ${j.status === 'FAILED' ? '🔄 续传重试' : '▶ 继续'}
+                    </button>
+                  ` : ''}
+                  ${canCancel ? `
+                    <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 8px; border-radius: 4px; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" onclick="cancelJob('${jid}')">
+                      ❌ 取消
+                    </button>
+                  ` : ''}
+                </div>
+              ` : ''}
             </div>
           `;
         }).join('');
