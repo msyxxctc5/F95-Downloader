@@ -1,7 +1,14 @@
 import os
 import re
+import json
+import logging
+import threading
 from pathlib import Path
-from typing import Dict, List, Set, Any
+from typing import Dict, List, Set, Any, Optional
+
+from config import atomic_write_json, get_library_root
+
+logger = logging.getLogger("akinasync.scanner")
 
 MONTH_NAME_MAP = {
     'january': '01', 'february': '02', 'march': '03', 'april': '04',
@@ -62,13 +69,13 @@ IGNORE_EXTENSIONS = {
 }
 
 def is_dir_non_empty(d: Path) -> bool:
-    """Returns True if directory contains at least one non-ignored file."""
+    """Returns True if directory contains at least one non-media file."""
     try:
         for f in d.rglob('*'):
             if f.is_file() and not f.name.startswith('.') and f.suffix.lower() not in IGNORE_EXTENSIONS:
                 return True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed scanning directory %s: %s", d, e)
     return False
 
 def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
@@ -220,9 +227,10 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                                             "is_dir": False,
                                             "size_mb": round(sub2.stat().st_size / (1024 * 1024), 2)
                                         })
-                    except Exception:
-                        pass
-        except Exception:
+                    except Exception as sub2_err:
+                        logger.debug("Failed reading nested subfolder %s: %s", sub, sub2_err)
+        except Exception as entry_err:
+            logger.debug("Failed reading entry %s: %s", entry, entry_err)
             continue
 
     sorted_months = sorted(list(detected_months))
@@ -257,19 +265,11 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
         "all_names": list({a["name"].lower() for a in media_assets})
     }
 
-import threading
-import json
-import logging
-
-logger = logging.getLogger("scanner")
-
 CACHE_VERSION = 2
 CACHE_DIR = Path(__file__).parent / "data"
 CACHE_FILE = CACHE_DIR / "library_cache.json"
 _memory_cache: Dict[str, Any] = {}
 _cache_lock = threading.RLock()
-
-from config import atomic_write_json
 
 def get_dir_signature(p: Path) -> float:
     """
@@ -288,10 +288,11 @@ def get_dir_signature(p: Path) -> float:
                             m2 = sub2.stat().st_mtime
                             if m2 > sig:
                                 sig = m2
-                except Exception:
-                    pass
+                except Exception as sub_err:
+                    logger.debug("Failed reading subfolder mtime for %s: %s", sub, sub_err)
         return sig
-    except Exception:
+    except Exception as dir_err:
+        logger.debug("Failed reading directory mtime for %s: %s", p, dir_err)
         return 0.0
 
 def load_library_cache() -> Dict[str, Any]:
@@ -350,13 +351,13 @@ def scan_author_directory_cached(author_dir: Path, force: bool = False) -> Dict[
         save_library_cache(cache)
         return dict(fresh_data)
 
-def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> List[Dict[str, Any]]:
+def scan_all_authors(root_dir: Optional[str] = None, force: bool = False) -> List[Dict[str, Any]]:
     """
     Scans the entire library root directory for all authors using mtime-signature caching.
     If directory mtime has not changed, zero deep disk I/O is performed.
     Returns safe copies of author data to avoid mutation of cache entries.
     """
-    root = Path(root_dir)
+    root = Path(root_dir) if root_dir is not None else get_library_root()
     if not root.exists():
         return []
         
@@ -397,7 +398,8 @@ def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> Li
 
 if __name__ == "__main__":
     import time
-    print("Testing cached scanning on H:\\akinaclub...")
+    target = get_library_root()
+    print(f"Testing cached scanning on {target}...")
     t0 = time.time()
     res1 = scan_all_authors()
     t1 = time.time()

@@ -560,11 +560,15 @@
       <h3 style="font-size: 18px;">配置选项</h3>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <label style="font-size: 12px; color: var(--text-muted);">F95zone xf_user Cookie:</label>
-        <input type="text" id="settingXfUser" class="thread-input" placeholder="如 2957989%2C...">
+        <input type="text" id="settingXfUser" class="thread-input" placeholder="如 1234567%2Cabcdef...">
       </div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <label style="font-size: 12px; color: var(--text-muted);">收藏集根目录:</label>
-        <input type="text" id="settingLibRoot" class="thread-input" value="H:\akinaclub">
+        <input type="text" id="settingLibRoot" class="thread-input" placeholder="如 D:\Library 或 ~/Downloads/library">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="font-size: 12px; color: var(--text-muted);">User-Agent (需与提取 cf_clearance 的浏览器一致):</label>
+        <input type="text" id="settingUserAgent" class="thread-input" placeholder="如 Mozilla/5.0 ...">
       </div>
       <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 6px;">
         <input type="checkbox" id="settingAutoDelete" checked>
@@ -667,7 +671,8 @@
         } else {
           document.getElementById('settingXfUser').placeholder = '输入 xf_user Cookie 凭据 (留空无法解析需登录资源)';
         }
-        document.getElementById('settingLibRoot').value = cfg.library_root || 'H:\\akinaclub';
+        document.getElementById('settingLibRoot').value = cfg.library_root || '';
+        document.getElementById('settingUserAgent').value = cfg.user_agent || '';
         document.getElementById('settingAutoDelete').checked = cfg.delete_archive_after_extract ?? true;
       } catch (e) {
         console.error("Failed to load config", e);
@@ -676,12 +681,16 @@
 
     async function saveSettings() {
       const newXf = document.getElementById('settingXfUser').value.trim();
+      const newUa = document.getElementById('settingUserAgent').value.trim();
       const payload = {
         library_root: document.getElementById('settingLibRoot').value.trim(),
         delete_archive_after_extract: document.getElementById('settingAutoDelete').checked
       };
       if (newXf) {
         payload.xf_user = newXf;
+      }
+      if (newUa) {
+        payload.user_agent = newUa;
       }
       await fetch('/api/config', {
         method: 'POST',
@@ -706,12 +715,9 @@
       authorsData = await res.json();
       renderAuthorList(authorsData);
       
-      // Auto-select Kidmo if present and no active selection
-      if (autoSelect && !currentAuthor) {
-        const kidmo = authorsData.find(a => a.name.toLowerCase() === 'kidmo');
-        if (kidmo) {
-          selectAuthor(kidmo.name);
-        }
+      // Auto-select first author if present and no active selection
+      if (autoSelect && !currentAuthor && authorsData.length > 0) {
+        selectAuthor(authorsData[0].name);
       }
     }
 
@@ -1271,14 +1277,41 @@
       pollJobs();
     }
 
+    let isBatchDownloading = false;
+
     async function downloadAllMissing(author, pwd) {
+      if (isBatchDownloading) {
+        alert("批量下载任务正在排队执行中，请勿重复点击。");
+        return;
+      }
       if (!currentDiff) return;
       const missingList = currentDiff.releases.filter(r => !r.exists_locally && r.month !== 'General');
-      for (const item of missingList) {
-        const mirror = item.mirrors.find(m => m.mirror.includes('PIXELDRAIN')) || item.mirrors[0];
-        if (mirror) {
-          await triggerDownload(author, item.month, mirror.masked_url, pwd);
+      if (missingList.length === 0) {
+        alert("当前没有缺失的内容需要补齐");
+        return;
+      }
+
+      if (!confirm(`检测到 ${missingList.length} 个缺失版本。为防止触发 F95zone 防火墙频率限制，将以 1.5 秒安全间隔排队加入下载队列。是否继续？`)) {
+        return;
+      }
+
+      isBatchDownloading = true;
+      document.getElementById('downloadDrawer').classList.add('active');
+
+      try {
+        for (let i = 0; i < missingList.length; i++) {
+          const item = missingList[i];
+          const mirror = item.mirrors.find(m => m.mirror.includes('PIXELDRAIN')) || item.mirrors[0];
+          if (mirror) {
+            await triggerDownload(author, item.month, mirror.masked_url, pwd);
+            // 1.5s safety interval between tasks to prevent triggering /masked/ rate limits
+            if (i < missingList.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+          }
         }
+      } finally {
+        isBatchDownloading = false;
       }
     }
 

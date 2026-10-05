@@ -1,8 +1,13 @@
 import os
 import subprocess
 import shutil
+import logging
 from pathlib import Path
 from typing import Optional
+
+from config import get_download_dir
+
+logger = logging.getLogger("akinasync.idm")
 
 def find_idm_path() -> Optional[str]:
     cands = [
@@ -28,10 +33,11 @@ def download_with_idm(url: str, output_dir: Optional[str] = None, filename: Opti
     """
     idm_exe = find_idm_path()
     if not idm_exe:
+        logger.warning("IDM executable not found in system or known paths")
         return False
 
     if not output_dir:
-        output_dir = os.path.expanduser(r"~\Downloads")
+        output_dir = str(get_download_dir())
 
     cmd = [idm_exe, "/d", url, "/p", output_dir]
     if filename:
@@ -42,6 +48,7 @@ def download_with_idm(url: str, output_dir: Optional[str] = None, filename: Opti
         subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         return True
     except Exception as e:
+        logger.error("Failed to launch IDM process: %s", e)
         return False
 
 if __name__ == "__main__":

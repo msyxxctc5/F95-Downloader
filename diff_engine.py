@@ -1,4 +1,6 @@
 import re
+import time
+import logging
 import requests
 # pyrefly: ignore [missing-import]
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -6,30 +8,68 @@ from urllib.parse import urlparse
 from typing import Dict, List, Any, Optional, Set, Tuple
 from pathlib import Path
 
-from config import get_request_cookies, load_config, safe_join, safe_filename
-from scanner import scan_author_directory, normalize_month
+from config import get_request_cookies, load_config, safe_join, safe_filename, get_library_root, get_user_agent
+from scanner import scan_author_directory, scan_author_directory_cached, normalize_month
 
-def unmask_f95_link(masked_url: str, cookies: dict) -> Optional[str]:
+logger = logging.getLogger("akinasync.diff")
+
+def unmask_f95_link_detailed(masked_url: str, cookies: dict) -> Tuple[Optional[str], Optional[str]]:
     """
-    Resolves F95zone masked link to the real cloud drive URL.
+    Resolves F95zone masked link to the real cloud drive URL with granular error diagnostics.
+    Returns: (real_url, error_message)
     """
     if not masked_url.startswith("https://f95zone.to/masked/"):
-        return masked_url
-        
+        return masked_url, None
+
+    # Check if xf_user cookie is provided
+    if not cookies or not cookies.get("xf_user"):
+        logger.warning("Unmask requested without xf_user cookie for %s", masked_url)
+        return None, "未配置 F95zone Cookie (xf_user)，请在设置中粘贴您的 Cookie"
+
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': get_user_agent(),
         'X-Requested-With': 'XMLHttpRequest',
         'Referer': masked_url
     }
     try:
-        resp = requests.post(masked_url, data={'xhr': 1, 'download': 1}, headers=headers, cookies=cookies, timeout=12)
+        resp = requests.post(masked_url, data={'xhr': 1, 'download': 1}, headers=headers, cookies=cookies, timeout=15)
         if resp.status_code == 200:
-            data = resp.json()
-            if data.get("status") == "ok":
-                return data.get("msg")
-    except Exception:
-        pass
-    return None
+            try:
+                data = resp.json()
+                if data.get("status") == "ok":
+                    return data.get("msg"), None
+                else:
+                    msg = data.get("msg", "未知接口返回")
+                    logger.warning("F95zone unmask rejected: %s", msg)
+                    return None, f"论坛解密接口拒绝: {msg}"
+            except Exception as json_err:
+                logger.warning("F95zone unmask returned non-JSON body: %s", json_err)
+                return None, "论坛返回非 JSON 响应，可能遭遇防护验证"
+        elif resp.status_code == 403:
+            logger.warning("F95zone unmask 403 Forbidden for %s", masked_url)
+            return None, "论坛访问被拒绝 (403): Cookie 可能已过期或触发 Cloudflare 验证"
+        elif resp.status_code == 429:
+            logger.warning("F95zone unmask 429 Rate Limited for %s", masked_url)
+            return None, "触发论坛防刷限制 (429 Too Many Requests)，请稍后重试"
+        else:
+            logger.warning("F95zone unmask HTTP %d for %s", resp.status_code, masked_url)
+            return None, f"论坛返回异常状态码: HTTP {resp.status_code}"
+    except requests.exceptions.Timeout:
+        logger.warning("F95zone unmask timeout for %s", masked_url)
+        return None, "请求论坛解密链接超时 (Timeout)，请检查网络或代理"
+    except requests.exceptions.ConnectionError as ce:
+        logger.warning("F95zone unmask connection error for %s: %s", masked_url, ce)
+        return None, "无法连接到 F95zone 论坛，请检查网络或代理设置"
+    except Exception as e:
+        logger.error("F95zone unmask unexpected error for %s: %s", masked_url, e)
+        return None, f"解析链接发生异常: {str(e)}"
+
+def unmask_f95_link(masked_url: str, cookies: dict) -> Optional[str]:
+    """
+    Backwards-compatible wrapper returning only the resolved URL.
+    """
+    url, _ = unmask_f95_link_detailed(masked_url, cookies)
+    return url
 
 DOWNLOAD_HOST_DOMAINS = {
     'pixeldrain.com', 'mega.nz', 'mega.io', 'gofile.io', 'workupload.com',
@@ -163,12 +203,30 @@ def extract_password_from_text(full_text: str) -> str:
 def parse_f95_thread_universal(url: str) -> Dict[str, Any]:
     cookies = get_request_cookies()
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': get_user_agent(),
         'Accept-Language': 'en-US,en;q=0.9',
     }
     
-    resp = requests.get(url, headers=headers, cookies=cookies, timeout=20)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(url, headers=headers, cookies=cookies, timeout=20)
+        resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        logger.warning("Timeout while fetching thread %s", url)
+        return {"error": "请求 F95zone 专楼超时 (Timeout)，请检查网络连接或代理", "title": ""}
+    except requests.exceptions.ConnectionError as ce:
+        logger.warning("Connection error fetching thread %s: %s", url, ce)
+        return {"error": "连接 F95zone 论坛失败，请检查网络或代理设置", "title": ""}
+    except requests.exceptions.HTTPError as he:
+        status = he.response.status_code if he.response is not None else 0
+        logger.warning("HTTP error %d fetching thread %s", status, url)
+        if status == 403:
+            return {"error": "F95zone 拒绝访问 (403): Cookie 已过期或触发 Cloudflare 验证，请在设置中更新 Cookie", "title": ""}
+        elif status == 429:
+            return {"error": "论坛请求频率过高 (429 Too Many Requests)，请稍后再刷新", "title": ""}
+        return {"error": f"请求专楼失败: HTTP {status}", "title": ""}
+    except Exception as e:
+        logger.error("Unexpected error fetching thread %s: %s", url, e)
+        return {"error": f"抓取专楼发生未知错误: {str(e)}", "title": ""}
 
     soup = BeautifulSoup(resp.text, 'html.parser')
     
@@ -227,10 +285,6 @@ def parse_f95_thread_universal(url: str) -> Dict[str, Any]:
         "releases": items_by_label
     }
 
-import time
-from config import get_request_cookies, load_config
-from scanner import scan_author_directory, scan_author_directory_cached, normalize_month
-
 _f95_thread_cache: Dict[str, Any] = {}
 
 def get_f95_data_cached(url: str, force: bool = False, ttl_seconds: int = 600) -> Dict[str, Any]:
@@ -251,8 +305,6 @@ def get_f95_data_cached(url: str, force: bool = False, ttl_seconds: int = 600) -
         "data": fresh
     }
     return fresh
-
-from typing import Dict, List, Any, Optional, Set, Tuple
 
 def get_title_numbers(text: str) -> Set[int]:
     base = re.sub(r'\.[a-zA-Z0-9]{2,5}$', '', text.lower())
@@ -341,8 +393,7 @@ def check_local_existence(label: str, local_data: Dict[str, Any]) -> Tuple[bool,
     return False, None
 
 def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False) -> Dict[str, Any]:
-    cfg = load_config()
-    lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
+    lib_root = get_library_root()
     clean_author = safe_filename(author_name)
     author_path = safe_join(lib_root, clean_author)
 
@@ -391,17 +442,4 @@ def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False)
     }
 
 if __name__ == "__main__":
-    # Test on Axsens, Maplestar, and Kidmo
-    test_suite = [
-        ("Kidmo", "https://f95zone.to/threads/kidmo-collection-2021-03-28-kidmo.48236/"),
-        ("Axsens", "https://f95zone.to/threads/axsens-collection-2026-08-31-axsens.32601/"),
-        ("Maplestar", "https://f95zone.to/threads/maplestar-collection-2026-09-16-maplestar_art.73407/")
-    ]
-    for author, url in test_suite:
-        res = compare_local_vs_f95(author, url)
-        print(f"=== Universal Diff for [{author}] ===")
-        print(f"F95 Releases Count: {res['f95_months_count']}")
-        print(f"Local Items Count:  {res['local_months_count']}")
-        print(f"Missing Count:      {res['missing_count']}")
-        print(f"Missing Sample:     {res['missing_months'][:5]}")
-        print()
+    print("AkinaSync Universal Diff Engine. Run via test suite or server API.")

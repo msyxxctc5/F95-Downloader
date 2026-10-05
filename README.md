@@ -67,7 +67,7 @@ pip install -r requirements.txt
   "delete_archive_after_extract": false
 }
 ```
-* **`library_root`**：您的本地创作者收藏总目录（如 `H:\My_Collection`）。
+* **`library_root`**：您的本地创作者收藏总目录（如 `D:\My_Collection` 或 `./library`）。
 * **`xf_user`**：您的 F95zone 登录凭证 Cookie（进入 F95zone 网页后，按 F12 打开开发者工具 -> Application -> Cookies -> 复制 `xf_user` 的值）。
 
 ### 3. 启动服务
@@ -87,7 +87,7 @@ python -m uvicorn server:app --host 127.0.0.1 --port 8899 --reload
 .
 ├── config.py              # 配置管理与 Cookie 加载器
 ├── config.example.json    # 配置文件模板示例
-├── cookie_helper.py       # 智能 Cookie 探测与有效性校验
+├── fastcache.py           # 内存直读极速缓存与后台静默增量校验器
 ├── diff_engine.py         # 专楼全格式解析、通用标签提取与 Diff 对比引擎
 ├── downloader.py          # Pixeldrain 直链解析与异步下载流处理器
 ├── extractor.py           # 7-Zip 多密码静默解压与分类归位管道

@@ -19,8 +19,6 @@ downloads/
 !static/*
 diff_result.json
 kidmo_sample.json
-test_*.py
-check_hosts.py
 
 # OS / Editor files
 .vscode/
