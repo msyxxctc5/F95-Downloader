@@ -721,6 +721,27 @@
       renderAuthorList(filtered);
     }
 
+    function formatAuthorMeta(a) {
+      if (a.month_count > 0 && (a.archive_style === 'MONTHLY' || !a.archive_style)) {
+        return `已归档 ${a.month_count} 个月份 ${a.latest_month ? '· 最新: ' + a.latest_month : ''}`;
+      }
+      if (a.year_count > 0 || a.archive_style === 'YEARLY') {
+        const cnt = a.year_count || (a.years ? a.years.length : 0);
+        const latest = a.latest_year || a.latest_month || '';
+        return `已归档 ${cnt} 个年份 ${latest ? '· 最新: ' + latest : ''}`;
+      }
+      if (a.term_count > 0 || a.archive_style === 'TERMS') {
+        return `已归档 ${a.term_count} 个期数`;
+      }
+      if (a.month_count > 0) {
+        return `已归档 ${a.month_count} 个月份 ${a.latest_month ? '· 最新: ' + a.latest_month : ''}`;
+      }
+      if (a.file_count > 0) {
+        return `已归档 ${a.file_count} 个文件`;
+      }
+      return '暂无归档内容';
+    }
+
     function renderAuthorList(list) {
       const el = document.getElementById('authorList');
       if (list.length === 0) {
@@ -731,7 +752,7 @@
         <div class="author-item ${currentAuthor === a.name ? 'active' : ''}" onclick="selectAuthor('${a.name}')">
           <div class="author-info">
             <span class="author-name">${a.name}</span>
-            <span class="author-meta">已归档 ${a.month_count} 个月份 ${a.latest_month ? '· 最新: ' + a.latest_month : ''}</span>
+            <span class="author-meta">${formatAuthorMeta(a)}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             ${a.missing_count > 0 ? `<span class="badge badge-missing">缺 ${a.missing_count}</span>` : (a.thread_url ? `<span class="badge badge-ok">已绑</span>` : '')}
