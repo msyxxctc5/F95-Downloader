@@ -497,6 +497,7 @@
       </svg>
       AkinaSync
       <span class="brand-badge">F95 Updater</span>
+      <span id="libraryStatusBadge" style="display: none; font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 500; align-items: center; gap: 5px;"></span>
     </div>
 
     <div class="header-actions">
@@ -600,12 +601,60 @@
     let currentAuthor = null;
     let currentDiff = null;
 
+    let isRevalidating = false;
+
     async function init() {
       await loadConfig();
       await loadAuthors();
       updateIngestCount();
+      checkLibraryStatus();
       setInterval(pollJobs, 1500);
       setInterval(updateIngestCount, 4000);
+      setInterval(checkLibraryStatus, 2500);
+    }
+
+    async function checkLibraryStatus() {
+      try {
+        const res = await fetch('/api/library/status');
+        const st = await res.json();
+        const badge = document.getElementById('libraryStatusBadge');
+        if (!badge) return;
+
+        if (!st.online) {
+          badge.style.display = 'inline-flex';
+          badge.style.background = 'rgba(239, 68, 68, 0.15)';
+          badge.style.color = '#f87171';
+          badge.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+          badge.innerHTML = '⚠️ 素材库离线 (已载入本地缓存)';
+          return;
+        }
+
+        if (st.running) {
+          isRevalidating = true;
+          badge.style.display = 'inline-flex';
+          badge.style.background = 'rgba(99, 102, 241, 0.15)';
+          badge.style.color = '#818cf8';
+          badge.style.border = '1px solid rgba(99, 102, 241, 0.3)';
+          badge.innerHTML = `🔄 正在静默校验库变动 (${st.checked}/${st.total})...`;
+        } else {
+          if (isRevalidating) {
+            isRevalidating = false;
+            if (st.updated && st.updated.length > 0) {
+              badge.style.display = 'inline-flex';
+              badge.style.background = 'rgba(16, 185, 129, 0.15)';
+              badge.style.color = '#34d399';
+              badge.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+              badge.innerHTML = `✔ 增量校验完成 (${st.updated.length} 位作者更新)`;
+              await loadAuthors(false);
+              setTimeout(() => { badge.style.display = 'none'; }, 4000);
+            } else {
+              badge.style.display = 'none';
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore polling errors
+      }
     }
 
     async function loadConfig() {
@@ -652,15 +701,17 @@
       document.getElementById('downloadDrawer').classList.toggle('active');
     }
 
-    async function loadAuthors() {
+    async function loadAuthors(autoSelect = true) {
       const res = await fetch('/api/authors');
       authorsData = await res.json();
       renderAuthorList(authorsData);
       
-      // Auto-select Kidmo if present
-      const kidmo = authorsData.find(a => a.name.toLowerCase() === 'kidmo');
-      if (kidmo) {
-        selectAuthor(kidmo.name);
+      // Auto-select Kidmo if present and no active selection
+      if (autoSelect && !currentAuthor) {
+        const kidmo = authorsData.find(a => a.name.toLowerCase() === 'kidmo');
+        if (kidmo) {
+          selectAuthor(kidmo.name);
+        }
       }
     }
 

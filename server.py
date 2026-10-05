@@ -126,12 +126,31 @@ def update_config(req: ConfigUpdateRequest):
     save_config(cfg)
     return {"status": "ok", "config": get_config()}
 
+@app.get("/api/library/status")
+def get_library_status():
+    from fastcache import STATE
+    cfg = load_config()
+    lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
+    return {
+        "online": lib_root.exists(),
+        "library_root": str(lib_root),
+        **STATE
+    }
+
 @app.get("/api/authors")
 def list_local_authors(force: bool = False):
     cfg = load_config()
     lib_root = cfg.get("library_root", r"H:\akinaclub")
     saved = get_saved_artists()
-    authors = scan_all_authors(lib_root, force=force)
+    
+    if force:
+        authors = scan_all_authors(lib_root, force=True)
+    else:
+        from fastcache import list_cached, start_background_revalidate
+        authors, online = list_cached(lib_root)
+        if online:
+            start_background_revalidate(lib_root)
+
     # Merge with saved thread info
     for a in authors:
         info = saved.get(a["name"])

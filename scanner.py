@@ -306,20 +306,24 @@ def invalidate_author_cache(author_name: str):
 def scan_author_directory_cached(author_dir: Path, force: bool = False) -> Dict[str, Any]:
     """
     Retrieves author data from cache if directory signature hasn't changed.
+    Performs directory inspection outside the lock to avoid contention.
     Returns a copy of the data dictionary to avoid cache contamination.
     """
+    name = author_dir.name
+    root_str = str(author_dir.parent)
+    sig = get_dir_signature(author_dir)
+
     with _cache_lock:
         cache = load_library_cache()
-        name = author_dir.name
-        sig = get_dir_signature(author_dir)
-
         if not force and name in cache:
             entry = cache[name]
-            if entry.get("v") == CACHE_VERSION and entry.get("sig") == sig:
+            if entry.get("v") == CACHE_VERSION and entry.get("root") == root_str and entry.get("sig") == sig:
                 return dict(entry["data"])
 
-        fresh_data = scan_author_directory(author_dir)
-        cache[name] = {"v": CACHE_VERSION, "sig": sig, "data": fresh_data}
+    fresh_data = scan_author_directory(author_dir)
+    with _cache_lock:
+        cache = load_library_cache()
+        cache[name] = {"v": CACHE_VERSION, "root": root_str, "sig": sig, "data": fresh_data}
         save_library_cache(cache)
         return dict(fresh_data)
 
@@ -333,6 +337,7 @@ def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> Li
     if not root.exists():
         return []
         
+    root_str = str(root)
     with _cache_lock:
         cache = load_library_cache()
         results = []
@@ -347,18 +352,18 @@ def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> Li
 
                 if not force and name in cache:
                     cached_entry = cache[name]
-                    if cached_entry.get("v") == CACHE_VERSION and cached_entry.get("sig") == sig:
+                    if cached_entry.get("v") == CACHE_VERSION and cached_entry.get("root") == root_str and cached_entry.get("sig") == sig:
                         results.append(dict(cached_entry["data"]))
                         continue
 
                 data = scan_author_directory(entry)
-                cache[name] = {"v": CACHE_VERSION, "sig": sig, "data": data}
+                cache[name] = {"v": CACHE_VERSION, "root": root_str, "sig": sig, "data": data}
                 results.append(dict(data))
                 has_changes = True
 
-        # Evict deleted directories from cache
-        for stale in list(cache.keys()):
-            if stale not in current_names:
+        # Evict deleted directories from cache belonging to this root
+        for stale, e in list(cache.items()):
+            if isinstance(e, dict) and e.get("root") == root_str and stale not in current_names:
                 del cache[stale]
                 has_changes = True
 
