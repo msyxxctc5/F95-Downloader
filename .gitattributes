@@ -1,0 +1,5 @@
+# Git archive export exclusions for clean production releases
+handoff/ export-ignore
+test_*.py export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
