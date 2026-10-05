@@ -218,5 +218,15 @@ class TestP2EngineeringFixes(unittest.TestCase):
             for ek in expected_keys:
                 self.assertIn(ek, releases)
 
+    def test_09_download_dir_auto_heal_legacy_paths(self):
+        """Verify get_download_dir automatically heals legacy paths pointing to obsolete Desktop\\Dev."""
+        from config import get_download_dir, load_config
+        with patch("config.load_config", return_value={"download_dir": r"C:\Users\Despa\Desktop\Dev\downloads"}):
+            with patch("config.save_config") as mock_save:
+                resolved = get_download_dir()
+                self.assertNotIn("Desktop\\Dev", str(resolved))
+                self.assertTrue(str(resolved).endswith("downloads"))
+                mock_save.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()

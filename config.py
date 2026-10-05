@@ -42,15 +42,22 @@ def get_library_root() -> Path:
     return Path.home() / "Downloads" / "library"
 
 def get_download_dir() -> Path:
-    """Returns the resolved download directory from config, supporting relative paths."""
+    """Returns the resolved download directory from config, supporting relative paths and auto-healing obsolete legacy paths."""
     cfg = load_config()
     raw = cfg.get("download_dir")
+    default_dir = (Path(__file__).parent / "downloads").resolve()
     if raw and str(raw).strip():
-        p = Path(raw).expanduser()
+        raw_str = str(raw).strip()
+        # Auto-heal legacy paths pointing to obsolete Desktop\Dev folder
+        if ("Desktop\\Dev" in raw_str or "Desktop/Dev" in raw_str) and "Dev" not in Path(__file__).parent.name:
+            cfg["download_dir"] = "downloads"
+            save_config(cfg)
+            return default_dir
+        p = Path(raw_str).expanduser()
         if not p.is_absolute():
             return (Path(__file__).parent / p).resolve()
         return p
-    return (Path(__file__).parent / "downloads").resolve()
+    return default_dir
 
 def get_user_agent() -> str:
     """Returns the configured User-Agent string."""
