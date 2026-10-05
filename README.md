@@ -10,7 +10,7 @@
 
 1. **泛用型智能 Diff 对比引擎 (`diff_engine.py`)**：
    - **多类型专楼结构兼容**：
-     - **月度更新型**（如 *Kidmo*）：精准提取 `YYYY-MM` / `MM-YYYY` 格式。
+     - **月度更新型作者**（如 *Kidmo*）：精准提取 `YYYY-MM` / `MM-YYYY` 格式。
      - **Patreon Term / Pack 型**（如 *Axsens*）：提取 150+ 期的 `Term XX`、`Pack XX` 标签。
      - **独立作品 / 标题型**（如 *Maplestar*）：智能识别带标点与编号的作品（如 `Kaiju No. 8:`、`Sono Bisque Doll Part 03:` 等）。
    - **本地资产感知与模糊比对**：自动扫描并规整本地数百个创作者目录，对比 F95 专楼实时发布，精准高亮标注 `待下载 (MISSING)` 与 `已归档 (DOWNLOADED)`。
@@ -60,14 +60,14 @@ pip install -r requirements.txt
 将 `config.example.json` 复制为 `config.json`：
 ```json
 {
-  "library_root": "./library",
+  "library_root": "YOUR FOLDER PATH",
   "download_dir": "./downloads",
   "seven_zip_path": "7z",
   "xf_user": "YOUR_XF_USER_COOKIE_HERE",
   "delete_archive_after_extract": false
 }
 ```
-* **`library_root`**：您的本地创作者收藏总目录（如 `./library` 或 `D:\Library`）。
+* **`library_root`**：您的本地创作者收藏总目录（如 `D:\My_Collection` 或 `./library`）。
 * **`xf_user`**：您的 F95zone 登录凭证 Cookie（进入 F95zone 网页后，按 F12 打开开发者工具 -> Application -> Cookies -> 复制 `xf_user` 的值）。
 
 ### 3. 启动服务
