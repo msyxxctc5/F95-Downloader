@@ -12,6 +12,9 @@ MONTH_NAME_MAP = {
     'oct': '10', 'nov': '11', 'dec': '12'
 }
 
+# Sort month names by length descending so fuller names (e.g. 'january') match before abbreviations ('jan')
+SORTED_MONTH_NAMES = sorted(MONTH_NAME_MAP.keys(), key=len, reverse=True)
+
 def normalize_month(text: str) -> str:
     """
     Standardize various date/month representations into 'YYYY-MM'.
@@ -26,30 +29,30 @@ def normalize_month(text: str) -> str:
     text = text.strip()
     
     # 1. Matches like 2021.03, 2021-03, 2021 03, 2021_03 (YYYY first)
-    m1 = re.search(r'(20\d{2})[.\-_\s/](0?[1-9]|1[0-2])(?!\d)', text)
+    m1 = re.search(r'((?:19|20)\d{2})[.\-_\s/](0?[1-9]|1[0-2])(?!\d)', text)
     if m1:
         year, month = m1.group(1), int(m1.group(2))
         return f"{year}-{month:02d}"
 
     # 1b. Matches like 03-2019, 04/2019, 10-2020 (MM first)
-    m1b = re.search(r'(?<!\d)(0?[1-9]|1[0-2])[.\-_\s/](20\d{2})', text)
+    m1b = re.search(r'(?<!\d)(0?[1-9]|1[0-2])[.\-_\s/]((?:19|20)\d{2})', text)
     if m1b:
         month, year = int(m1b.group(1)), m1b.group(2)
         return f"{year}-{month:02d}"
         
     # 2. Matches like 202004, 202103 (6 digits)
-    m2 = re.search(r'(20\d{2})(0[1-9]|1[0-2])(?!\d)', text)
+    m2 = re.search(r'((?:19|20)\d{2})(0[1-9]|1[0-2])(?!\d)', text)
     if m2:
         year, month = m2.group(1), int(m2.group(2))
         return f"{year}-{month:02d}"
 
-    # 3. Matches like March 2021 or 2021 March
+    # 3. Matches like March 2021 or 2021 March (requires exact word boundary \b)
     lower = text.lower()
-    for mname, mnum in MONTH_NAME_MAP.items():
-        if mname in lower:
-            myear = re.search(r'(20\d{2})', text)
+    for mname in SORTED_MONTH_NAMES:
+        if re.search(rf'\b{re.escape(mname)}\b', lower):
+            myear = re.search(r'((?:19|20)\d{2})', text)
             if myear:
-                return f"{myear.group(1)}-{mnum}"
+                return f"{myear.group(1)}-{MONTH_NAME_MAP[mname]}"
                 
     return ""
 
