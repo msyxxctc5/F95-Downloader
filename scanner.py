@@ -77,6 +77,7 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
     Filters out non-media garbage (.txt, .nfo, etc.) to prevent false positives.
     """
     detected_months: Set[str] = set()
+    detected_years: Set[str] = set()
     detected_terms: Set[str] = set()
     media_assets: List[Dict[str, Any]] = []
     month_details: Dict[str, List[str]] = {}
@@ -88,6 +89,7 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             "name": author_dir.name,
             "path": str(author_dir),
             "months": [],
+            "years": [],
             "terms": [],
             "media_assets": [],
             "all_names": [],
@@ -101,6 +103,7 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             "name": author_dir.name,
             "path": str(author_dir),
             "months": [],
+            "years": [],
             "terms": [],
             "media_assets": [],
             "all_names": [],
@@ -156,10 +159,11 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                         "size_mb": 0
                     })
 
-                # Year folder transparency (e.g. "2021", "2022")
-                year_match = re.fullmatch(r'20\d{2}', entry.name.strip())
-                if year_match:
-                    year = year_match.group(0)
+                # Year folder detection & transparency (e.g. "2021", "2022")
+                year_match = re.fullmatch(r'((?:19|20)\d{2})', entry.name.strip())
+                if year_match and has_content:
+                    year = year_match.group(1)
+                    has_sub_months = False
                     for sub_entry in entry.iterdir():
                         if sub_entry.name.startswith('.'):
                             continue
@@ -169,6 +173,7 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                             if (sub_entry.is_file() and sub_entry.suffix.lower() not in IGNORE_EXTENSIONS) or (sub_entry.is_dir() and is_dir_non_empty(sub_entry)):
                                 detected_months.add(norm_m)
                                 month_details.setdefault(norm_m, []).append(f"{entry.name}/{sub_entry.name}")
+                                has_sub_months = True
                         else:
                             if sub_entry.is_file() and sub_entry.suffix.lower() not in IGNORE_EXTENSIONS:
                                 media_assets.append({
@@ -177,6 +182,15 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
                                     "is_dir": False,
                                     "size_mb": round(sub_entry.stat().st_size / (1024 * 1024), 2)
                                 })
+                            elif sub_entry.is_dir() and is_dir_non_empty(sub_entry):
+                                media_assets.append({
+                                    "name": sub_entry.name,
+                                    "rel_path": f"{entry.name}/{sub_entry.name}",
+                                    "is_dir": True,
+                                    "size_mb": 0
+                                })
+                    if not has_sub_months:
+                        detected_years.add(year)
                 else:
                     # Index sub-entries up to 2 levels deep
                     try:
@@ -212,11 +226,14 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
             continue
 
     sorted_months = sorted(list(detected_months))
+    sorted_years = sorted(list(detected_years))
     sorted_terms = sorted(list(detected_terms))
 
     # Detect dominant archive style
     if len(sorted_months) >= 3:
         style = "MONTHLY"
+    elif len(sorted_years) >= 2:
+        style = "YEARLY"
     elif len(sorted_terms) >= 3:
         style = "TERMS"
     else:
@@ -227,9 +244,12 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
         "path": str(author_dir),
         "archive_style": style,
         "months": sorted_months,
+        "years": sorted_years,
         "terms": sorted_terms,
-        "latest_month": sorted_months[-1] if sorted_months else None,
+        "latest_month": sorted_months[-1] if sorted_months else (sorted_years[-1] if sorted_years else None),
+        "latest_year": sorted_years[-1] if sorted_years else None,
         "month_count": len(sorted_months),
+        "year_count": len(sorted_years),
         "term_count": len(sorted_terms),
         "total_size_mb": round(total_size / (1024 * 1024), 2),
         "file_count": file_count,

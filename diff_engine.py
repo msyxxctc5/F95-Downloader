@@ -286,6 +286,10 @@ def check_local_existence(label: str, local_data: Dict[str, Any]) -> Tuple[bool,
     if norm_m and norm_m in local_data.get("months", []):
         return True, norm_m
 
+    # 1b. Year match
+    if label in local_data.get("years", []):
+        return True, label
+
     # 2. Term match
     if label in local_data.get("terms", []):
         return True, label
@@ -361,6 +365,11 @@ def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False)
             "mirrors": mirrors
         })
 
+    downloaded_labels = [
+        item["month"] for item in diff_list 
+        if item["exists_locally"] and item["month"] not in ("Unknown / General", "General")
+    ]
+
     missing_labels = [
         item["month"] for item in diff_list 
         if not item["exists_locally"] and item["month"] not in ("Unknown / General", "General")
@@ -372,8 +381,9 @@ def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False)
         "author": author_name,
         "thread_title": f95_data.get("title"),
         "password": f95_data.get("password") or "f95zone",
-        "local_months_count": local_data.get("month_count", 0),
+        "local_months_count": len(downloaded_labels),
         "local_months": local_data.get("months", []),
+        "local_years": local_data.get("years", []),
         "f95_months_count": len(valid_f95_labels),
         "missing_count": len(missing_labels),
         "missing_months": missing_labels,
