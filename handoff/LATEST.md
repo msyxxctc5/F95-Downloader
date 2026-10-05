@@ -36,6 +36,7 @@ project: F95-Downloader (AkinaSync)
 | P1 准确性与下载健壮性修复 | 月份与密码单词边界正则、hostname精准下载链接判断、7z分卷支持、Pixeldrain /l/ 支持、.part 临时文件流式下载校验、Bamh3D年度归档统计修复 | `diff_engine.py`, `downloader.py`, `extractor.py`, `scanner.py` / PR #3 (`a17338f`) |
 | P2 工程规范与可维护性重构 | 彻底消除吞异常 pass 并接入 logging；配置集中化与隐私脱敏（杜绝私人盘符与本地用户绝对路径）；移除 AOMEI 路径与高危遗留文件；统一 IDM 目录为 download_dir 并新增 /api/idm/download 路由；User-Agent 配置化；一键补齐 1.5s 限速防风控排队；跨平台与 Python 3.12 docstring 转义警告修复；新增 test_p2_fixes.py | `config.py`, `diff_engine.py`, `downloader.py`, `extractor.py`, `idm_helper.py`, `ingest.py`, `scanner.py`, `server.py`, `static/index.html`, `test_p2_fixes.py` / PR #4 (`6b7ecfe` 已合入 `main`) |
 | 专楼复合发布项完整性修复 | 解决区间/日期/分类发布项被截断缩水及同月多项被折叠吞并Bug，引入 is_pure_month 精确判定，完整保留选项名称并精准对应原帖数量 | `diff_engine.py`, `test_p2_fixes.py` / PR #5 (`77cd8d6` 已合入 `main`) |
+| v1.0.0 正式版发布 | 打包干净核心发行资产 `F95-Downloader-v1.0.0.zip`，发布 GitHub Release `v1.0.0`，包含 P0/冷启动/P1/P2/专楼完整性等全部里程碑成果 | GitHub Release [v1.0.0](https://github.com/msyxxctc5/F95-Downloader/releases/tag/v1.0.0) |
 
 ## 3. 已确认规则与决策（用户明确拍板，不得擅自更改）
 - 规则/偏好：
