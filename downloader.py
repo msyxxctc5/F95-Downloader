@@ -92,6 +92,23 @@ class DownloadJob:
         self.error_msg = ""
         self.final_path = ""
         self.real_url = ""
+        self._pause_event = threading.Event()
+        self._cancel_event = threading.Event()
+
+    def pause(self):
+        self.status = "PAUSED"
+        self._pause_event.set()
+
+    def resume(self):
+        self._pause_event.clear()
+        self._cancel_event.clear()
+        self.status = "PENDING"
+        self.error_msg = ""
+        self.speed_str = "0 KB/s"
+
+    def cancel(self):
+        self.status = "CANCELLED"
+        self._cancel_event.set()
 
     def run(self, progress_callback: Optional[Callable[['DownloadJob'], None]] = None):
         cfg = load_config()
@@ -101,17 +118,30 @@ class DownloadJob:
         lib_root = get_library_root()
 
         try:
-            # 1. Unmask link with rate limiting
-            self.status = "UNMASKING"
-            if progress_callback:
-                progress_callback(self)
+            if self._cancel_event.is_set() or self.status == "CANCELLED":
+                return
+            if self._pause_event.is_set() or self.status == "PAUSED":
+                return
 
-            real_url, unmask_err = rate_limited_unmask(self.masked_url, cookies)
-            if not real_url:
-                err_detail = unmask_err or "无法解析 F95zone 反代跳转链接"
-                logger.warning("Unmask failed for job %s_%s: %s", self.author, self.month, err_detail)
-                raise Exception(err_detail)
-            self.real_url = real_url
+            # 1. Unmask link with rate limiting (if not already unmasked)
+            if not self.real_url:
+                self.status = "UNMASKING"
+                if progress_callback:
+                    progress_callback(self)
+
+                real_url, unmask_err = rate_limited_unmask(self.masked_url, cookies)
+                if not real_url:
+                    err_detail = unmask_err or "无法解析 F95zone 反代跳转链接"
+                    logger.warning("Unmask failed for job %s_%s: %s", self.author, self.month, err_detail)
+                    raise Exception(err_detail)
+                self.real_url = real_url
+            else:
+                real_url = self.real_url
+
+            if self._cancel_event.is_set() or self.status == "CANCELLED":
+                return
+            if self._pause_event.is_set() or self.status == "PAUSED":
+                return
 
             # 2. Check if host supports direct backend downloading
             direct_url, fname = resolve_direct_download_url(real_url)
@@ -126,7 +156,7 @@ class DownloadJob:
             local_file = safe_join(dl_dir, fname)
             part_file = local_file.with_name(f"{local_file.name}.part")
 
-            # 3. Download stream to .part file with retry and integrity check
+            # 3. Download stream to .part file with Range support, retry and integrity check
             self.status = "DOWNLOADING"
             if progress_callback:
                 progress_callback(self)
@@ -136,35 +166,84 @@ class DownloadJob:
             download_success = False
 
             for attempt in range(1, max_retries + 1):
-                part_file.unlink(missing_ok=True)
+                if self._cancel_event.is_set() or self.status == "CANCELLED":
+                    part_file.unlink(missing_ok=True)
+                    return
+                if self._pause_event.is_set() or self.status == "PAUSED":
+                    return
+
                 try:
-                    headers = {
-                        'User-Agent': get_user_agent()
-                    }
+                    resume_from = part_file.stat().st_size if part_file.exists() else 0
+                    headers = {'User-Agent': get_user_agent()}
+                    if resume_from > 0:
+                        headers['Range'] = f"bytes={resume_from}-"
+
                     with requests.get(direct_url, headers=headers, stream=True, timeout=35) as r:
+                        if r.status_code == 416:
+                            # Range not satisfiable, reset .part file and retry from byte 0
+                            logger.warning("Range 416 received for %s, resetting .part file", fname)
+                            part_file.unlink(missing_ok=True)
+                            resume_from = 0
+                            raise Exception("续传偏移无效 (HTTP 416)，已重置并重新下载")
+
                         r.raise_for_status()
-                        
+
                         # Check Content-Type to prevent saving HTML error pages
                         content_type = r.headers.get('content-type', '').lower()
                         if 'text/html' in content_type:
                             raise Exception(f"网盘返回了 HTML 验证页面而非文件内容，请在浏览器中打开网盘下载: {real_url}")
 
-                        total_length = r.headers.get('content-length')
-                        expected_size = int(total_length) if total_length and total_length.isdigit() else 0
-                        self.total_size = expected_size
+                        if r.status_code == 206:
+                            mode = 'ab'
+                            cr = r.headers.get('content-range', '')
+                            if '/' in cr:
+                                total_part = cr.split('/')[-1].strip()
+                                expected_size = int(total_part) if total_part.isdigit() else 0
+                            else:
+                                expected_size = 0
+                        else:
+                            mode = 'wb'
+                            resume_from = 0
+                            cl = r.headers.get('content-length')
+                            expected_size = int(cl) if cl and cl.isdigit() else 0
 
-                        downloaded = 0
+                        self.total_size = expected_size
+                        downloaded = resume_from
+                        self.downloaded_size = downloaded
+                        if self.total_size > 0:
+                            self.progress = round((downloaded / self.total_size) * 100, 1)
+
                         start_time = time.time()
                         last_time = start_time
-                        last_bytes = 0
+                        last_bytes = downloaded
 
-                        with open(part_file, 'wb') as f:
+                        with open(part_file, mode) as f:
                             for chunk in r.iter_content(chunk_size=1024 * 512):
+                                if self._cancel_event.is_set() or self.status == "CANCELLED":
+                                    logger.info("Download cancelled: %s", fname)
+                                    f.flush()
+                                    f.close()
+                                    part_file.unlink(missing_ok=True)
+                                    self.status = "CANCELLED"
+                                    self.speed_str = "0 KB/s"
+                                    if progress_callback:
+                                        progress_callback(self)
+                                    return
+
+                                if self._pause_event.is_set() or self.status == "PAUSED":
+                                    logger.info("Download paused: %s at %d bytes", fname, downloaded)
+                                    f.flush()
+                                    self.status = "PAUSED"
+                                    self.speed_str = "0 KB/s"
+                                    if progress_callback:
+                                        progress_callback(self)
+                                    return
+
                                 if chunk:
                                     f.write(chunk)
                                     downloaded += len(chunk)
                                     self.downloaded_size = downloaded
-                                    
+
                                     now = time.time()
                                     if now - last_time >= 0.5:
                                         speed = (downloaded - last_bytes) / (now - last_time)
@@ -185,17 +264,23 @@ class DownloadJob:
                         with open(part_file, 'rb') as f:
                             head = f.read(150)
                             if b'<html' in head.lower() or b'<!doctype' in head.lower():
+                                part_file.unlink(missing_ok=True)
                                 raise Exception("下载的文件为 HTML 网页并非有效文件，可能被网盘拦截。")
 
                     download_success = True
                     break
                 except Exception as dl_err:
+                    if self.status in ("PAUSED", "CANCELLED"):
+                        return
                     last_download_error = dl_err
                     logger.warning("Download attempt %d/%d failed for %s: %s", attempt, max_retries, fname, dl_err)
-                    part_file.unlink(missing_ok=True)
+                    # Preserve .part file on transient errors for subsequent resume
                     if attempt < max_retries:
                         time.sleep(2)
                     continue
+
+            if self.status in ("PAUSED", "CANCELLED"):
+                return
 
             if not download_success:
                 raise Exception(f"下载失败 (已重试 {max_retries} 次): {str(last_download_error)}")
@@ -229,13 +314,11 @@ class DownloadJob:
                 progress_callback(self)
 
         except Exception as e:
+            if self.status in ("PAUSED", "CANCELLED"):
+                return
             logger.error("DownloadJob error for %s (%s): %s", self.author, self.month, e)
-            try:
-                if 'part_file' in locals() and part_file.exists():
-                    part_file.unlink(missing_ok=True)
-            except Exception as part_err:
-                logger.debug("Failed to clean up part file on error: %s", part_err)
             self.status = "FAILED"
             self.error_msg = str(e)
+            self.speed_str = "0 KB/s"
             if progress_callback:
                 progress_callback(self)
