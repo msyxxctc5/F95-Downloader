@@ -156,5 +156,67 @@ class TestP2EngineeringFixes(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
             self.assertEqual(res.json()["status"], "ok")
 
+    def test_08_release_label_completeness_and_no_collapse(self):
+        """Verify universal label parser preserves full release titles and does not collapse items."""
+        from diff_engine import extract_universal_label, is_pure_month
+        from bs4 import BeautifulSoup
+
+        # 1. Direct label extraction checks
+        self.assertEqual(extract_universal_label("2022:"), "2022")
+        self.assertEqual(extract_universal_label("2023 to 06-20:"), "2023 to 06-20")
+        self.assertEqual(extract_universal_label("Animations:"), "Animations")
+        self.assertEqual(extract_universal_label("2023-06 to 2024-04:"), "2023-06 to 2024-04")
+        self.assertEqual(extract_universal_label("2025-02-11 Update:"), "2025-02-11 Update")
+        self.assertEqual(extract_universal_label("2025-02 to 2026-06 Pics:"), "2025-02 to 2026-06 Pics")
+        self.assertEqual(extract_universal_label("2025-02 to 2026-06 Anims:"), "2025-02 to 2026-06 Anims")
+        self.assertEqual(extract_universal_label("Renders up to 2026-06:"), "Renders up to 2026-06")
+        self.assertEqual(extract_universal_label("Kaiju No. 8:"), "Kaiju No. 8")
+        self.assertEqual(extract_universal_label("Term 154:"), "Term 154")
+        self.assertEqual(extract_universal_label("2021-03:"), "2021-03")
+        self.assertEqual(extract_universal_label("March 2021:"), "2021-03")
+        self.assertIsNone(extract_universal_label("Download:"))
+        self.assertIsNone(extract_universal_label("Password:"))
+
+        # 2. End-to-end DOM traversal check matching user report
+        sample_html = '''
+        <div class="message-body"><div class="bbWrapper">
+          <div style="text-align: center">
+            <b>Download</b>:<br/>
+            <b>2022: </b><a href="https://f95zone.to/masked/mega.nz/1">MEGA</a><br/>
+            <b>2023 to 06-20: </b><a href="https://bunkr.black/f/1">BUNKR</a><br/>
+            <b>Animations: </b><a href="https://f95zone.to/masked/mega.nz/2">MEGA</a><br/>
+            <b>2023-06 to 2024-04: </b><a href="https://bunkr.black/f/2">BUNKR</a><br/>
+            <b>2025-02-11 Update: </b><a href="https://bunkr.black/f/3">BUNKR</a><br/>
+            <b>2025-02 to 2026-06 Pics: </b><a href="https://bunkr.black/f/4">BUNKR</a><br/>
+            <b>2025-02 to 2026-06 Anims: </b><a href="https://f95zone.to/masked/mega.nz/3">MEGA</a><br/>
+            <b>Compressed<br/>Renders up to 2026-06: </b><a href="https://bunkr.black/f/5">BUNKR</a><br/>
+          </div>
+        </div></div>
+        '''
+        with patch("requests.get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.text = sample_html
+            mock_get.return_value = mock_resp
+
+            from diff_engine import parse_f95_thread_universal
+            parsed = parse_f95_thread_universal("https://f95zone.to/threads/demo.12345/")
+            releases = parsed.get("releases", {})
+
+            # Must contain all 8 releases, not collapsed to 6
+            self.assertEqual(len(releases), 8)
+            expected_keys = [
+                "2022",
+                "2023 to 06-20",
+                "Animations",
+                "2023-06 to 2024-04",
+                "2025-02-11 Update",
+                "2025-02 to 2026-06 Pics",
+                "2025-02 to 2026-06 Anims",
+                "Renders up to 2026-06"
+            ]
+            for ek in expected_keys:
+                self.assertIn(ek, releases)
+
 if __name__ == "__main__":
     unittest.main()

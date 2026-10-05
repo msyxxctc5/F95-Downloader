@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional, Set, Tuple
 from pathlib import Path
 
 from config import get_request_cookies, load_config, safe_join, safe_filename, get_library_root, get_user_agent
-from scanner import scan_author_directory, scan_author_directory_cached, normalize_month
+from scanner import scan_author_directory, scan_author_directory_cached, normalize_month, SORTED_MONTH_NAMES
 
 logger = logging.getLogger("akinasync.diff")
 
@@ -138,34 +138,74 @@ LABEL_FALSE_POSITIVES = {
     'file', 'files', 'support', 'credit', 'credits', 'instructions'
 }
 
+def is_pure_month(text: str) -> bool:
+    """
+    Returns True ONLY if the text solely represents a single month (e.g. '2021-03', 'March 2021', '2020.04').
+    If the text contains additional semantics like 'Update', 'Pics', 'Anims', 'to', 'Pack', 'Part', etc.,
+    or contains specific dates like '2025-02-11', it returns False to preserve full title.
+    """
+    cleaned = text.strip().rstrip(':').strip()
+    norm = normalize_month(cleaned)
+    if not norm:
+        return False
+    # Check for range indicators (e.g., 'to', 'until', 'up to', '~', '->')
+    if re.search(r'\b(to|until|up\s+to|through)\b|[~→\-]{2,}', cleaned, re.IGNORECASE):
+        return False
+    # Check for specific days e.g. 2025-02-11 or March 15, 2021
+    if re.search(r'\b(?:19|20)\d{2}[.\-_/](?:0?[1-9]|1[0-2])[.\-_/](?:0?[1-9]|[12]\d|3[01])\b', cleaned):
+        return False
+    if re.search(r'\b(?:0?[1-9]|[12]\d|3[01])[.\-_/](?:0?[1-9]|1[0-2])[.\-_/](?:19|20)\d{2}\b', cleaned):
+        return False
+
+    # Remove the recognized month pattern and see if substantial words remain
+    remainder = re.sub(r'\b(?:19|20)\d{2}[.\-_\s/](?:0?[1-9]|1[0-2])\b', '', cleaned)
+    remainder = re.sub(r'\b(?:0?[1-9]|1[0-2])[.\-_\s/](?:19|20)\d{2}\b', '', remainder)
+    for mname in SORTED_MONTH_NAMES:
+        remainder = re.sub(rf'\b{re.escape(mname)}\b', '', remainder, flags=re.I)
+    remainder = re.sub(r'\b(?:19|20)\d{2}\b', '', remainder)
+    remainder = re.sub(r'[^a-zA-Z0-9]', '', remainder).strip()
+    return len(remainder) == 0
+
 def extract_universal_label(text: str) -> Optional[str]:
     """
     Extracts release identifier from text:
-    1. Standard Month (e.g., 2021-03, 04-2019, 2026-09)
-    2. Term / Pack / Vol / Volume (e.g., Term 71, Pack 05, Vol.3)
-    3. Named Work / Title (e.g., "Kaiju No. 8:", "Sono Bisque Doll:", "Fern x Stark:")
+    1. Exact label ending with colon (e.g. "2025-02 to 2026-06 Pics:", "Animations:", "Kaiju No. 8:")
+    2. Pure standard month (e.g., 2021-03, 04-2019, March 2021)
+    3. Term / Pack / Vol / Volume (e.g., Term 71, Pack 05, Vol.3)
+    4. Release title with colon inside node (e.g. "2022: MEGA - ...")
     """
     if not text:
         return None
     cleaned = text.strip()
-    
-    # 1. Check month first
-    m = normalize_month(cleaned)
-    if m:
-        return m
-        
-    # 2. Check Term / Pack / Vol / Update
+
+    # 1. Matches label ending with colon, e.g. "2025-02-11 Update:", "Animations:", "2022:"
+    colon_match = re.search(r'^([A-Za-z0-9\s&_\-.#\(\)\'\"]{2,80}):\s*$', cleaned)
+    if colon_match:
+        cand = colon_match.group(1).strip()
+        if cand.lower() not in LABEL_FALSE_POSITIVES:
+            if is_pure_month(cand):
+                return normalize_month(cand)
+            return cand
+
+    # 2. Pure month without colon (e.g., "2021-03", "March 2021")
+    if is_pure_month(cleaned):
+        return normalize_month(cleaned)
+
+    # 3. Term / Pack / Vol / Volume
     term_match = re.search(r'\b(Term\s*\d+|Pack\s*\d+|Vol(?:ume)?\.?\s*\d+|Update\s*#?\d+)\b', cleaned, re.I)
     if term_match:
         return term_match.group(1).title()
 
-    # 3. Check work title ending with colon or similar, e.g. "Kaiju No. 8:"
-    work_match = re.search(r'^([A-Za-z0-9\s&_\-.#\(\)\'\"]{2,50}):\s*$', cleaned)
-    if work_match:
-        cand = work_match.group(1).strip()
-        # Filter out common false positives with heuristic blacklist
-        if cand.lower() not in LABEL_FALSE_POSITIVES:
-            return cand
+    # 4. Matches inline label where colon is followed by mirrors or link text, e.g. "2022: MEGA - ..."
+    if ':' in cleaned:
+        before_colon, after_colon = cleaned.split(':', 1)
+        before_colon = before_colon.strip()
+        if 2 <= len(before_colon) <= 80 and before_colon.lower() not in LABEL_FALSE_POSITIVES:
+            after_clean = after_colon.strip().upper()
+            if not after_clean or any(h in after_clean for h in ('MEGA', 'PIXELDRAIN', 'BUNKR', 'WORKUPLOAD', 'GOFILE', 'DATANODES', 'DOWNLOAD', 'LINK', 'HTTP')):
+                if is_pure_month(before_colon):
+                    return normalize_month(before_colon)
+                return before_colon
 
     return None
 
