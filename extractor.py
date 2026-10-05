@@ -26,6 +26,21 @@ def get_7z_path() -> str:
 import uuid
 import time
 
+def _recursive_merge_dir(src_dir: Path, dst_dir: Path):
+    """
+    Recursively moves files from src_dir into dst_dir, overwriting existing files
+    without destroying existing non-conflicting files in destination subdirectories.
+    """
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for item in src_dir.iterdir():
+        dest_item = dst_dir / item.name
+        if item.is_dir():
+            _recursive_merge_dir(item, dest_item)
+        else:
+            if dest_item.exists():
+                dest_item.unlink(missing_ok=True)
+            shutil.move(str(item), str(dest_item))
+
 def extract_archive(archive_path: Path, output_dir: Path, passwords: Optional[List[str]] = None) -> Tuple[bool, str]:
     """
     Extracts zip, rar, or 7z using 7z.exe with automatic password trying.
@@ -99,15 +114,8 @@ def extract_archive(archive_path: Path, output_dir: Path, passwords: Optional[Li
             if not output_dir.exists():
                 os.replace(temp_dir, output_dir)
             else:
-                # Merge contents into existing output_dir
-                for item in temp_dir.iterdir():
-                    dest_item = output_dir / item.name
-                    if dest_item.exists():
-                        if dest_item.is_dir():
-                            shutil.rmtree(dest_item, ignore_errors=True)
-                        else:
-                            dest_item.unlink(missing_ok=True)
-                    shutil.move(str(item), str(output_dir))
+                # Merge contents recursively into existing output_dir without destroying non-conflicting subfolders
+                _recursive_merge_dir(temp_dir, output_dir)
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return True, f"解压成功 (使用密码: {'[空密码]' if not used_pwd else used_pwd})"
         else:

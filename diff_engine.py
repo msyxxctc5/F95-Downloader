@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
 
-from config import get_request_cookies, load_config
+from config import get_request_cookies, load_config, safe_join, safe_filename
 from scanner import scan_author_directory, normalize_month
 
 def unmask_f95_link(masked_url: str, cookies: dict) -> Optional[str]:
@@ -259,7 +259,8 @@ def check_local_existence(label: str, local_data: Dict[str, Any]) -> Tuple[bool,
 def compare_local_vs_f95(author_name: str, thread_url: str, force: bool = False) -> Dict[str, Any]:
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
-    author_path = lib_root / author_name
+    clean_author = safe_filename(author_name)
+    author_path = safe_join(lib_root, clean_author)
 
     local_data = scan_author_directory_cached(author_path, force=force)
     f95_data = get_f95_data_cached(thread_url, force=force)

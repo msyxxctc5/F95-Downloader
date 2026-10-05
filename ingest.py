@@ -45,13 +45,38 @@ def ingest_archive_to_library(
     Extracts an archive safely into H:\akinaclub\<author>\<month>,
     then removes the original archive only if extraction fully succeeds.
     """
-    archive_path = Path(archive_path_str)
+    try:
+        archive_path = Path(archive_path_str).resolve()
+    except Exception as e:
+        return {"status": "error", "message": f"路径无效: {str(e)}"}
+
     if not archive_path.exists() or not archive_path.is_file():
         return {"status": "error", "message": "压缩包文件不存在"}
+
+    if archive_path.suffix.lower() not in ARCHIVE_EXTS:
+        return {"status": "error", "message": f"不支持的文件类型: {archive_path.suffix}"}
 
     cfg = load_config()
     lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
     
+    # Security check: ensure archive_path is inside allowed directories
+    allowed_roots = [
+        Path(os.path.expanduser(r"~\Downloads")).resolve(),
+        (Path(__file__).parent / "downloads").resolve(),
+        lib_root.resolve()
+    ]
+    is_allowed = False
+    for root in allowed_roots:
+        try:
+            archive_path.relative_to(root)
+            is_allowed = True
+            break
+        except ValueError:
+            pass
+
+    if not is_allowed:
+        return {"status": "error", "message": "安全限制：待归档文件必须位于下载目录或素材库目录内"}
+
     try:
         clean_author = safe_filename(author)
         clean_month = safe_filename(month)

@@ -234,11 +234,17 @@ def scan_author_directory(author_dir: Path) -> Dict[str, Any]:
         "all_names": list({a["name"].lower() for a in media_assets})
     }
 
+import threading
 import json
+import logging
 
+logger = logging.getLogger("scanner")
+
+CACHE_VERSION = 2
 CACHE_DIR = Path(__file__).parent / "data"
 CACHE_FILE = CACHE_DIR / "library_cache.json"
 _memory_cache: Dict[str, Any] = {}
+_cache_lock = threading.RLock()
 
 from config import atomic_write_json
 
@@ -267,83 +273,99 @@ def get_dir_signature(p: Path) -> float:
 
 def load_library_cache() -> Dict[str, Any]:
     global _memory_cache
-    if _memory_cache:
+    with _cache_lock:
+        if _memory_cache:
+            return _memory_cache
+        if CACHE_FILE.exists():
+            try:
+                with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                    _memory_cache = json.load(f)
+                    return _memory_cache
+            except Exception as e:
+                logger.warning(f"Failed to read library_cache.json, resetting cache: {e}")
+                _memory_cache = {}
         return _memory_cache
-    if CACHE_FILE.exists():
-        try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                _memory_cache = json.load(f)
-                return _memory_cache
-        except Exception:
-            _memory_cache = {}
-    return _memory_cache
 
 def save_library_cache(cache: Dict[str, Any]):
     global _memory_cache
-    _memory_cache = cache
-    atomic_write_json(CACHE_FILE, cache)
+    with _cache_lock:
+        _memory_cache = cache
+        try:
+            atomic_write_json(CACHE_FILE, cache)
+        except Exception as e:
+            logger.error(f"Failed to save library cache atomically: {e}")
 
 def invalidate_author_cache(author_name: str):
     global _memory_cache
-    cache = load_library_cache()
-    if author_name in cache:
-        del cache[author_name]
-        save_library_cache(cache)
+    with _cache_lock:
+        cache = load_library_cache()
+        if author_name in cache:
+            del cache[author_name]
+            save_library_cache(cache)
 
 def scan_author_directory_cached(author_dir: Path, force: bool = False) -> Dict[str, Any]:
     """
     Retrieves author data from cache if directory signature hasn't changed.
+    Returns a copy of the data dictionary to avoid cache contamination.
     """
-    cache = load_library_cache()
-    name = author_dir.name
-    sig = get_dir_signature(author_dir)
+    with _cache_lock:
+        cache = load_library_cache()
+        name = author_dir.name
+        sig = get_dir_signature(author_dir)
 
-    if not force and name in cache and cache[name].get("sig") == sig:
-        return cache[name]["data"]
+        if not force and name in cache:
+            entry = cache[name]
+            if entry.get("v") == CACHE_VERSION and entry.get("sig") == sig:
+                return dict(entry["data"])
 
-    fresh_data = scan_author_directory(author_dir)
-    cache[name] = {"sig": sig, "data": fresh_data}
-    save_library_cache(cache)
-    return fresh_data
+        fresh_data = scan_author_directory(author_dir)
+        cache[name] = {"v": CACHE_VERSION, "sig": sig, "data": fresh_data}
+        save_library_cache(cache)
+        return dict(fresh_data)
 
 def scan_all_authors(root_dir: str = r"H:\akinaclub", force: bool = False) -> List[Dict[str, Any]]:
     """
     Scans the entire library root directory for all authors using mtime-signature caching.
     If directory mtime has not changed, zero deep disk I/O is performed.
+    Returns safe copies of author data to avoid mutation of cache entries.
     """
     root = Path(root_dir)
     if not root.exists():
         return []
         
-    cache = load_library_cache()
-    results = []
-    has_changes = False
-    current_names = set()
+    with _cache_lock:
+        cache = load_library_cache()
+        results = []
+        has_changes = False
+        current_names = set()
 
-    for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-        if entry.is_dir() and not entry.name.startswith('.'):
-            name = entry.name
-            current_names.add(name)
-            sig = get_dir_signature(entry)
+        for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if entry.is_dir() and not entry.name.startswith('.'):
+                name = entry.name
+                current_names.add(name)
+                sig = get_dir_signature(entry)
 
-            if not force and name in cache and cache[name].get("sig") == sig:
-                results.append(cache[name]["data"])
-            else:
+                if not force and name in cache:
+                    cached_entry = cache[name]
+                    if cached_entry.get("v") == CACHE_VERSION and cached_entry.get("sig") == sig:
+                        results.append(dict(cached_entry["data"]))
+                        continue
+
                 data = scan_author_directory(entry)
-                cache[name] = {"sig": sig, "data": data}
-                results.append(data)
+                cache[name] = {"v": CACHE_VERSION, "sig": sig, "data": data}
+                results.append(dict(data))
                 has_changes = True
 
-    # Evict deleted directories from cache
-    for stale in list(cache.keys()):
-        if stale not in current_names:
-            del cache[stale]
-            has_changes = True
+        # Evict deleted directories from cache
+        for stale in list(cache.keys()):
+            if stale not in current_names:
+                del cache[stale]
+                has_changes = True
 
-    if has_changes:
-        save_library_cache(cache)
-            
-    return results
+        if has_changes:
+            save_library_cache(cache)
+                
+        return results
 
 if __name__ == "__main__":
     import time
