@@ -1,31 +1,38 @@
 import os
-import subprocess
+import re
+import time
+import uuid
 import shutil
+import logging
+import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from config import load_config
+from config import load_config, get_7z_custom_path
+
+logger = logging.getLogger("akinasync.extractor")
 
 def get_7z_path() -> str:
-    # Check default PATH first
-    cmd = shutil.which("7z")
-    if cmd:
-        return cmd
+    # 1. Check custom path from config first
+    custom = get_7z_custom_path()
+    if custom and os.path.exists(custom):
+        return custom
+
+    # 2. Check system PATH
+    for name in ("7z", "7za"):
+        cmd = shutil.which(name)
+        if cmd:
+            return cmd
     
-    # Common Windows locations
+    # 3. Standard Windows locations
     candidates = [
         r"C:\Program Files\7-Zip\7z.exe",
         r"C:\Program Files (x86)\7-Zip\7z.exe",
-        r"C:\Program Files (x86)\AOMEI\AOMEI Backupper\6.10.0\7z.exe"
     ]
     for p in candidates:
         if os.path.exists(p):
             return p
     return "7z"
-
-import uuid
-import time
-import re
 
 def find_primary_archive_volume(archive_path: Path) -> Tuple[Path, Optional[str]]:
     """

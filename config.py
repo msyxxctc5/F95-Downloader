@@ -4,23 +4,69 @@ import re
 import uuid
 import shutil
 import threading
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger("akinasync.config")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s", "%Y-%m-%d %H:%M:%S")
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
 _file_lock = threading.Lock()
 
-DEFAULT_CONFIG = {
-    "library_root": r"H:\akinaclub",
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "library_root": str(Path.home() / "Downloads" / "akinaclub"),
     "xf_user": "",
     "cf_clearance": "",
     "full_cookie": "",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "preferred_mirrors": ["pixeldrain", "gofile", "workupload", "mega"],
-    "download_dir": str(Path(__file__).parent / "downloads"),
+    "download_dir": "downloads",
     "auto_extract": True,
     "delete_archive_after_extract": True,
-    "known_passwords": ["f95zone", "f95"]
+    "known_passwords": ["f95zone", "f95"],
+    "seven_zip_path": ""
 }
+
+def get_library_root() -> Path:
+    """Returns the resolved library root directory from config, falling back to user's home Downloads."""
+    cfg = load_config()
+    raw = cfg.get("library_root")
+    if raw and str(raw).strip():
+        return Path(raw).expanduser()
+    return Path.home() / "Downloads" / "akinaclub"
+
+def get_download_dir() -> Path:
+    """Returns the resolved download directory from config, supporting relative paths."""
+    cfg = load_config()
+    raw = cfg.get("download_dir")
+    if raw and str(raw).strip():
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            return (Path(__file__).parent / p).resolve()
+        return p
+    return (Path(__file__).parent / "downloads").resolve()
+
+def get_user_agent() -> str:
+    """Returns the configured User-Agent string."""
+    cfg = load_config()
+    ua = cfg.get("user_agent")
+    if ua and str(ua).strip():
+        return str(ua).strip()
+    return str(DEFAULT_CONFIG["user_agent"])
+
+def get_7z_custom_path() -> Optional[str]:
+    """Returns the optional user-configured 7-Zip binary path."""
+    cfg = load_config()
+    p = cfg.get("seven_zip_path")
+    if p and str(p).strip():
+        return str(p).strip()
+    return None
 
 def safe_join(root: Path, *parts: str) -> Path:
     """
@@ -62,11 +108,12 @@ def load_config() -> Dict[str, Any]:
             cfg.update(data)
             return cfg
     except Exception as e:
+        logger.error("Failed to parse config.json, recovering from backup: %s", e)
         bak = CONFIG_FILE.with_suffix(".json.bak")
         try:
             shutil.copy(CONFIG_FILE, bak)
-        except Exception:
-            pass
+        except Exception as bak_err:
+            logger.warning("Could not backup corrupted config file: %s", bak_err)
         return DEFAULT_CONFIG.copy()
 
 def save_config(cfg: Dict[str, Any]):
@@ -88,4 +135,5 @@ def get_request_cookies() -> Dict[str, str]:
 
 if __name__ == "__main__":
     cfg = load_config()
-    print("Config loaded:", cfg)
+    sanitized = {k: ("******" if "user" in k or "cookie" in k or "clearance" in k else v) for k, v in cfg.items()}
+    print("Config loaded (sanitized):", sanitized)

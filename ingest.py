@@ -1,11 +1,14 @@
 import os
 import shutil
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from scanner import normalize_month
 from extractor import extract_archive
-from config import load_config
+from config import load_config, safe_join, safe_filename, get_library_root, get_download_dir
+
+logger = logging.getLogger("akinasync.ingest")
 
 ARCHIVE_EXTS = {'.zip', '.rar', '.7z', '.tar', '.gz'}
 
@@ -14,7 +17,7 @@ def scan_downloads_folder(downloads_dir: Optional[str] = None) -> List[Dict[str,
     Scans the user's Downloads folder for pending archive files.
     """
     if not downloads_dir:
-        downloads_dir = os.path.expanduser(r"~\Downloads")
+        downloads_dir = str(get_download_dir())
         
     p = Path(downloads_dir)
     if not p.exists():
@@ -33,16 +36,14 @@ def scan_downloads_folder(downloads_dir: Optional[str] = None) -> List[Dict[str,
             
     return sorted(results, key=lambda x: x["filename"].lower())
 
-from config import load_config, safe_join, safe_filename
-
 def ingest_archive_to_library(
     archive_path_str: str,
     author: str,
     month: str,
     password: str = "f95zone"
 ) -> Dict[str, Any]:
-    """
-    Extracts an archive safely into H:\akinaclub\<author>\<month>,
+    r"""
+    Extracts an archive safely into <library_root>/<author>/<month>,
     then removes the original archive only if extraction fully succeeds.
     """
     try:
@@ -57,12 +58,12 @@ def ingest_archive_to_library(
         return {"status": "error", "message": f"不支持的文件类型: {archive_path.suffix}"}
 
     cfg = load_config()
-    lib_root = Path(cfg.get("library_root", r"H:\akinaclub"))
+    lib_root = get_library_root()
     
     # Security check: ensure archive_path is inside allowed directories
     allowed_roots = [
         Path(os.path.expanduser(r"~\Downloads")).resolve(),
-        (Path(__file__).parent / "downloads").resolve(),
+        get_download_dir().resolve(),
         lib_root.resolve()
     ]
     is_allowed = False
@@ -94,7 +95,7 @@ def ingest_archive_to_library(
         try:
             archive_path.unlink(missing_ok=True)
         except Exception as e:
-            pass
+            logger.warning("Failed to delete source archive %s after ingestion: %s", archive_path, e)
 
     return {
         "status": "ok",
