@@ -396,6 +396,8 @@ def idm_download_endpoint(req: IDMRequest):
         raise HTTPException(status_code=400, detail=detail)
     direct_url, fname = resolve_direct_download_url(real_url)
     target_url = direct_url if direct_url else real_url
+    if not fname:
+        fname = f"{safe_filename(req.author)}_{safe_filename(req.month)}.zip"
     ok = download_with_idm(target_url, filename=fname)
     if not ok:
         raise HTTPException(status_code=500, detail="调用 IDM 失败，请检查 IDM 是否已安装并在运行")
