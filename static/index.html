@@ -1106,7 +1106,7 @@
             ${pixeldrainMirror ? `
               <div style="display: flex; gap: 6px;">
                 <button class="btn btn-primary" style="flex: 1.2; justify-content: center; font-size: 11px; padding: 6px 8px; background: linear-gradient(135deg, #059669 0%, #10b981 100%);" 
-                        onclick="triggerIDMDownload('${author}', '${r.month}', '${pixeldrainMirror.masked_url}')">
+                        onclick="triggerIDMDownload('${author}', '${r.month}', '${pixeldrainMirror.masked_url}', this)">
                   🚀 IDM 多线程下载
                 </button>
                 <button class="btn btn-secondary" style="flex: 1; justify-content: center; font-size: 11px; padding: 6px 8px;" 
@@ -1125,24 +1125,30 @@
       `;
     }
 
-    async function triggerIDMDownload(author, month, maskedUrl) {
+    async function triggerIDMDownload(author, month, maskedUrl, btnElement = null) {
+      const origText = btnElement ? btnElement.innerHTML : '';
+      if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.innerHTML = '⏳ 正在调起 IDM...';
+      }
       try {
-        const res = await fetch(`/api/download/direct_url?masked_url=${encodeURIComponent(maskedUrl)}`);
+        const res = await fetch('/api/idm/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author, month, masked_url: maskedUrl })
+        });
         const data = await res.json();
-        if (data.target_url) {
-          // Trigger browser download; IDM Chrome extension will automatically intercept!
-          const a = document.createElement('a');
-          a.href = data.target_url;
-          if (data.filename) a.download = data.filename;
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        } else {
-          window.open(maskedUrl, '_blank');
+        if (!res.ok) {
+          throw new Error(data.detail || '调用 IDM 失败');
         }
+        alert(`✔ 已成功将 [${author} - ${month}] 推送至 IDM 下载队列！\n文件名: ${data.filename || '默认'}`);
       } catch (e) {
-        window.open(maskedUrl, '_blank');
+        alert('调用 IDM 失败: ' + e.message);
+      } finally {
+        if (btnElement) {
+          btnElement.disabled = false;
+          btnElement.innerHTML = origText;
+        }
       }
     }
 
