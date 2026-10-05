@@ -34,7 +34,7 @@ project: F95-Downloader (AkinaSync)
 | P0 安全与数据损坏修复 | 彻底解决缓存污染(副本返回)、条目版本号(`CACHE_VERSION=2`)、内存并发读写锁(`_cache_lock`)、Cookie明文脱敏、SSRF限制、Host/Origin跨站防护、路径穿越清洗、受限归档路径、递归合并目录废除rmtree | `scanner.py`, `server.py`, `diff_engine.py`, `ingest.py`, `extractor.py` / commit `40f6c1a`, PR #1 (`bff5dcf`) |
 | 冷启动秒开与静默校验 (Claude 方案) | 列表接口改为纯内存+顶层 scandir 直读缓存（毫秒级秒开），后台单作者 30ms 节流静默比对，慢 I/O 移出锁外，素材库路径绑定与离线保护，前端状态指示徽章 | `fastcache.py`, `scanner.py`, `server.py`, `static/index.html` / commit `cf7e6d1`, PR #2 (`045c97d`) |
 | P1 准确性与下载健壮性修复 | 月份与密码单词边界正则、hostname精准下载链接判断、7z分卷支持、Pixeldrain /l/ 支持、.part 临时文件流式下载校验、Bamh3D年度归档统计修复 | `diff_engine.py`, `downloader.py`, `extractor.py`, `scanner.py` / PR #3 (`a17338f`) |
-| P2 工程规范与可维护性重构 | 彻底消除吞异常 pass 并接入 logging；配置集中化与隐私脱敏（杜绝私人盘符与本地用户绝对路径）；移除 AOMEI 路径与高危遗留文件；统一 IDM 目录为 download_dir 并新增 /api/idm/download 路由；User-Agent 配置化；一键补齐 1.5s 限速防风控排队；跨平台与 Python 3.12 docstring 转义警告修复；新增 test_p2_fixes.py | `config.py`, `diff_engine.py`, `downloader.py`, `extractor.py`, `idm_helper.py`, `ingest.py`, `scanner.py`, `server.py`, `static/index.html`, `test_p2_fixes.py` / 分支 `fix/p2-engineering-and-cleanup` |
+| P2 工程规范与可维护性重构 | 彻底消除吞异常 pass 并接入 logging；配置集中化与隐私脱敏（杜绝私人盘符与本地用户绝对路径）；移除 AOMEI 路径与高危遗留文件；统一 IDM 目录为 download_dir 并新增 /api/idm/download 路由；User-Agent 配置化；一键补齐 1.5s 限速防风控排队；跨平台与 Python 3.12 docstring 转义警告修复；新增 test_p2_fixes.py | `config.py`, `diff_engine.py`, `downloader.py`, `extractor.py`, `idm_helper.py`, `ingest.py`, `scanner.py`, `server.py`, `static/index.html`, `test_p2_fixes.py` / PR #4 (`6b7ecfe` 已合入 `main`) |
 
 ## 3. 已确认规则与决策（用户明确拍板，不得擅自更改）
 - 规则/偏好：
