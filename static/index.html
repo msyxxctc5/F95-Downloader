@@ -567,6 +567,10 @@
         <input type="text" id="settingLibRoot" class="thread-input" placeholder="如 D:\Library 或 ~/Downloads/library">
       </div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="font-size: 12px; color: var(--text-muted);">下载与临时缓存目录:</label>
+        <input type="text" id="settingDownloadDir" class="thread-input" placeholder="默认 downloads 或指定任意绝对路径如 D:\Downloads">
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
         <label style="font-size: 12px; color: var(--text-muted);">User-Agent (需与提取 cf_clearance 的浏览器一致):</label>
         <input type="text" id="settingUserAgent" class="thread-input" placeholder="如 Mozilla/5.0 ...">
       </div>
@@ -672,6 +676,7 @@
           document.getElementById('settingXfUser').placeholder = '输入 xf_user Cookie 凭据 (留空无法解析需登录资源)';
         }
         document.getElementById('settingLibRoot').value = cfg.library_root || '';
+        document.getElementById('settingDownloadDir').value = cfg.download_dir || '';
         document.getElementById('settingUserAgent').value = cfg.user_agent || '';
         document.getElementById('settingAutoDelete').checked = cfg.delete_archive_after_extract ?? true;
       } catch (e) {
@@ -682,6 +687,7 @@
     async function saveSettings() {
       const newXf = document.getElementById('settingXfUser').value.trim();
       const newUa = document.getElementById('settingUserAgent').value.trim();
+      const newDlDir = document.getElementById('settingDownloadDir').value.trim();
       const payload = {
         library_root: document.getElementById('settingLibRoot').value.trim(),
         delete_archive_after_extract: document.getElementById('settingAutoDelete').checked
@@ -691,6 +697,9 @@
       }
       if (newUa) {
         payload.user_agent = newUa;
+      }
+      if (newDlDir) {
+        payload.download_dir = newDlDir;
       }
       await fetch('/api/config', {
         method: 'POST',
