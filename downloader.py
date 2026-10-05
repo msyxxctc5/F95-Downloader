@@ -14,19 +14,35 @@ def resolve_direct_download_url(real_url: str) -> Tuple[Optional[str], Optional[
     Given a cloud drive URL, resolve it to direct downloadable stream URL and filename.
     Returns: (download_url, filename)
     """
-    # 1. Pixeldrain
+    # 1. Pixeldrain single file /u/
     px_match = re.search(r'pixeldrain\.com/u/([a-zA-Z0-9]+)', real_url)
     if px_match:
         file_id = px_match.group(1)
+        fname = f"pixeldrain_{file_id}.zip"
         try:
             info_res = requests.get(f"https://pixeldrain.com/api/file/{file_id}/info", timeout=10)
             if info_res.status_code == 200:
                 data = info_res.json()
-                fname = data.get("name", f"pixeldrain_{file_id}.zip")
-                dl_url = f"https://pixeldrain.com/api/file/{file_id}"
-                return dl_url, fname
+                fname = data.get("name", fname)
         except Exception:
-            return f"https://pixeldrain.com/api/file/{file_id}", f"pixeldrain_{file_id}.zip"
+            pass
+        return f"https://pixeldrain.com/api/file/{file_id}", fname
+
+    # 2. Pixeldrain folder/list /l/
+    px_list_match = re.search(r'pixeldrain\.com/l/([a-zA-Z0-9]+)', real_url)
+    if px_list_match:
+        list_id = px_list_match.group(1)
+        fname = f"pixeldrain_list_{list_id}.zip"
+        try:
+            info_res = requests.get(f"https://pixeldrain.com/api/list/{list_id}", timeout=10)
+            if info_res.status_code == 200:
+                data = info_res.json()
+                title = data.get("title")
+                if title:
+                    fname = f"{title}.zip"
+        except Exception:
+            pass
+        return f"https://pixeldrain.com/api/list/{list_id}/zip", fname
 
     # Other cloud hosts (Mega, Workupload with captcha) cannot be directly fetched via simple stream GET
     return None, None
@@ -79,56 +95,78 @@ class DownloadJob:
             local_file = safe_join(dl_dir, fname)
             part_file = local_file.with_name(f"{local_file.name}.part")
 
-            # 3. Download stream to .part file first
+            # 3. Download stream to .part file with retry and integrity check
             self.status = "DOWNLOADING"
             if progress_callback:
                 progress_callback(self)
 
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            with requests.get(direct_url, headers=headers, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                
-                # Check Content-Type to prevent saving HTML error pages
-                content_type = r.headers.get('content-type', '').lower()
-                if 'text/html' in content_type:
-                    raise Exception(f"网盘返回了 HTML 验证页面而非文件内容，请在浏览器中打开网盘下载: {real_url}")
+            max_retries = 3
+            last_download_error = None
+            download_success = False
 
-                total_length = r.headers.get('content-length')
-                if total_length is None:
-                    self.total_size = 0
-                else:
-                    self.total_size = int(total_length)
+            for attempt in range(1, max_retries + 1):
+                part_file.unlink(missing_ok=True)
+                try:
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                    with requests.get(direct_url, headers=headers, stream=True, timeout=35) as r:
+                        r.raise_for_status()
+                        
+                        # Check Content-Type to prevent saving HTML error pages
+                        content_type = r.headers.get('content-type', '').lower()
+                        if 'text/html' in content_type:
+                            raise Exception(f"网盘返回了 HTML 验证页面而非文件内容，请在浏览器中打开网盘下载: {real_url}")
 
-                downloaded = 0
-                start_time = time.time()
-                last_time = start_time
-                last_bytes = 0
+                        total_length = r.headers.get('content-length')
+                        expected_size = int(total_length) if total_length and total_length.isdigit() else 0
+                        self.total_size = expected_size
 
-                with open(part_file, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 512):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            self.downloaded_size = downloaded
-                            
-                            now = time.time()
-                            if now - last_time >= 0.5:
-                                speed = (downloaded - last_bytes) / (now - last_time)
-                                self.speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed > 1024*1024 else f"{speed / 1024:.1f} KB/s"
-                                last_time = now
-                                last_bytes = downloaded
-                                if self.total_size > 0:
-                                    self.progress = round((downloaded / self.total_size) * 100, 1)
-                                if progress_callback:
-                                    progress_callback(self)
+                        downloaded = 0
+                        start_time = time.time()
+                        last_time = start_time
+                        last_bytes = 0
 
-            # Verification of downloaded file
-            if part_file.stat().st_size < 10000: # < 10KB
-                with open(part_file, 'rb') as f:
-                    head = f.read(100)
-                    if b'<html' in head.lower() or b'<!doctype' in head.lower():
-                        part_file.unlink(missing_ok=True)
-                        raise Exception("下载的文件为 HTML 网页并非压缩包，请在浏览器中手动下载。")
+                        with open(part_file, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=1024 * 512):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+                                    self.downloaded_size = downloaded
+                                    
+                                    now = time.time()
+                                    if now - last_time >= 0.5:
+                                        speed = (downloaded - last_bytes) / (now - last_time)
+                                        self.speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed > 1024*1024 else f"{speed / 1024:.1f} KB/s"
+                                        last_time = now
+                                        last_bytes = downloaded
+                                        if self.total_size > 0:
+                                            self.progress = round((downloaded / self.total_size) * 100, 1)
+                                        if progress_callback:
+                                            progress_callback(self)
+
+                    # Integrity verification of downloaded part file
+                    actual_size = part_file.stat().st_size
+                    if expected_size > 0 and actual_size != expected_size:
+                        raise Exception(f"下载不完整: 实际获取 {actual_size} 字节，预期 {expected_size} 字节")
+
+                    if actual_size < 2048: # Small file HTML check
+                        with open(part_file, 'rb') as f:
+                            head = f.read(150)
+                            if b'<html' in head.lower() or b'<!doctype' in head.lower():
+                                raise Exception("下载的文件为 HTML 网页并非有效文件，可能被网盘拦截。")
+
+                    download_success = True
+                    break
+                except Exception as dl_err:
+                    last_download_error = dl_err
+                    part_file.unlink(missing_ok=True)
+                    if attempt < max_retries:
+                        time.sleep(2)
+                    continue
+
+            if not download_success:
+                raise Exception(f"下载失败 (已重试 {max_retries} 次): {str(last_download_error)}")
 
             # Rename .part to final file atomically
             os.replace(part_file, local_file)
