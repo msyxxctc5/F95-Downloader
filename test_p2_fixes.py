@@ -22,8 +22,8 @@ class TestP2EngineeringFixes(unittest.TestCase):
 
     def test_01_config_centralization_and_privacy(self):
         """Verify DEFAULT_CONFIG contains no hardcoded personal drives or usernames."""
-        self.assertNotIn("H:\\akinaclub", DEFAULT_CONFIG["library_root"])
-        self.assertNotIn("Despa", DEFAULT_CONFIG["download_dir"])
+        self.assertNotIn(":", DEFAULT_CONFIG["download_dir"])
+        self.assertEqual(DEFAULT_CONFIG["download_dir"], "downloads")
         self.assertIn("user_agent", DEFAULT_CONFIG)
         self.assertIn("seven_zip_path", DEFAULT_CONFIG)
 
@@ -32,7 +32,6 @@ class TestP2EngineeringFixes(unittest.TestCase):
 
         dl_dir = get_download_dir()
         self.assertIsInstance(dl_dir, Path)
-        self.assertNotIn("Despa", str(dl_dir).lower() if "despa" not in os.environ.get("USERNAME", "").lower() else "")
 
         ua = get_user_agent()
         self.assertIn("Mozilla", ua)

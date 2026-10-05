@@ -34,7 +34,7 @@ project: F95-Downloader (AkinaSync)
 | P0 安全与数据损坏修复 | 彻底解决缓存污染(副本返回)、条目版本号(`CACHE_VERSION=2`)、内存并发读写锁(`_cache_lock`)、Cookie明文脱敏、SSRF限制、Host/Origin跨站防护、路径穿越清洗、受限归档路径、递归合并目录废除rmtree | `scanner.py`, `server.py`, `diff_engine.py`, `ingest.py`, `extractor.py` / commit `40f6c1a`, PR #1 (`bff5dcf`) |
 | 冷启动秒开与静默校验 (Claude 方案) | 列表接口改为纯内存+顶层 scandir 直读缓存（毫秒级秒开），后台单作者 30ms 节流静默比对，慢 I/O 移出锁外，素材库路径绑定与离线保护，前端状态指示徽章 | `fastcache.py`, `scanner.py`, `server.py`, `static/index.html` / commit `cf7e6d1`, PR #2 (`045c97d`) |
 | P1 准确性与下载健壮性修复 | 月份与密码单词边界正则、hostname精准下载链接判断、7z分卷支持、Pixeldrain /l/ 支持、.part 临时文件流式下载校验、Bamh3D年度归档统计修复 | `diff_engine.py`, `downloader.py`, `extractor.py`, `scanner.py` / PR #3 (`a17338f`) |
-| P2 工程规范与可维护性重构 | 彻底消除吞异常 pass 并接入 logging；配置集中化与隐私脱敏（杜绝 H:\akinaclub 与 Despa 用户名）；移除 AOMEI 路径与高危遗留文件；统一 IDM 目录为 download_dir 并新增 /api/idm/download 路由；User-Agent 配置化；一键补齐 1.5s 限速防风控排队；跨平台与 Python 3.12 docstring 转义警告修复；新增 test_p2_fixes.py | `config.py`, `diff_engine.py`, `downloader.py`, `extractor.py`, `idm_helper.py`, `ingest.py`, `scanner.py`, `server.py`, `static/index.html`, `test_p2_fixes.py` / 分支 `fix/p2-engineering-and-cleanup` |
+| P2 工程规范与可维护性重构 | 彻底消除吞异常 pass 并接入 logging；配置集中化与隐私脱敏（杜绝私人盘符与本地用户绝对路径）；移除 AOMEI 路径与高危遗留文件；统一 IDM 目录为 download_dir 并新增 /api/idm/download 路由；User-Agent 配置化；一键补齐 1.5s 限速防风控排队；跨平台与 Python 3.12 docstring 转义警告修复；新增 test_p2_fixes.py | `config.py`, `diff_engine.py`, `downloader.py`, `extractor.py`, `idm_helper.py`, `ingest.py`, `scanner.py`, `server.py`, `static/index.html`, `test_p2_fixes.py` / 分支 `fix/p2-engineering-and-cleanup` |
 
 ## 3. 已确认规则与决策（用户明确拍板，不得擅自更改）
 - 规则/偏好：
@@ -84,7 +84,7 @@ project: F95-Downloader (AkinaSync)
 
 ### P2：工程规范、可维护性与冗余清理
 1. **统一日志体系与异常透传**：消除满屏 `except Exception: pass`，引入标准 `logging`，并将底层失败原因（Cookie 失效、403 防火墙、网络超时）直观上报给前端 UI。
-2. **配置集中化与隐私脱敏**：清理多处散落的 `H:\akinaclub`、绝对路径与测试种子数据，统一由 `config.py` 管理。
+2. **配置集中化与隐私脱敏**：清理多处散落的私有盘符、绝对路径与测试种子数据，统一由 `config.py` 管理。
 3. **冗余/高危遗留文件清理**：
    - `cookie_helper.py`：未被引用，且内存提取 DPAPI 会被安全软件（如 Defender）误判为窃密木马，且无法解密新版 Chrome v20 App-Bound，建议清理；
    - `check_hosts.py`：单次调试脚本，已无保留必要；
@@ -101,12 +101,12 @@ project: F95-Downloader (AkinaSync)
 - 需要用户提供的输入：新会话中用户指定的优先修复/功能项。
 
 ## 7. 关键产物与引用
-- 核心服务: [server.py](file:///c:/Users/Despa/Desktop/Dev/server.py)
-- 高性能缓存管理器: [fastcache.py](file:///c:/Users/Despa/Desktop/Dev/fastcache.py)
-- 目录扫描引擎: [scanner.py](file:///c:/Users/Despa/Desktop/Dev/scanner.py)
-- F95 论坛比对与解析: [diff_engine.py](file:///c:/Users/Despa/Desktop/Dev/diff_engine.py)
-- 安全解压模块: [extractor.py](file:///c:/Users/Despa/Desktop/Dev/extractor.py)
-- 归档入库模块: [ingest.py](file:///c:/Users/Despa/Desktop/Dev/ingest.py)
-- 前端单页应用: [static/index.html](file:///c:/Users/Despa/Desktop/Dev/static/index.html)
+- 核心服务: [server.py](../server.py)
+- 高性能缓存管理器: [fastcache.py](../fastcache.py)
+- 目录扫描引擎: [scanner.py](../scanner.py)
+- F95 论坛比对与解析: [diff_engine.py](../diff_engine.py)
+- 安全解压模块: [extractor.py](../extractor.py)
+- 归档入库模块: [ingest.py](../ingest.py)
+- 前端单页应用: [static/index.html](../static/index.html)
 - 自动化测试: `test_fastcache.py`, `test_p0_fixes.py`
 - 本地数据: `data/artists.json`, `data/library_cache.json`

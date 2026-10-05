@@ -1,5 +1,5 @@
 {
-  "library_root": "H:\\akinaclub",
+  "library_root": "./library",
   "download_dir": "./downloads",
   "seven_zip_path": "7z",
   "xf_user": "YOUR_F95ZONE_XF_USER_COOKIE_HERE",
