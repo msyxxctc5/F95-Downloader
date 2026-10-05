@@ -3,19 +3,27 @@ from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 from config import get_request_cookies
 
-def search_f95_threads(query: str, limit: int = 5) -> List[Dict[str, str]]:
+def search_f95_threads(query: str, limit: int = 5, title_only: bool = False) -> List[Dict[str, str]]:
     cookies = get_request_cookies()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
     }
-    # XenForo search endpoint
-    search_url = f"https://f95zone.to/search/3811804/?q={requests.utils.quote(query)}&o=relevance"
+    # Standard dynamic XenForo search endpoint (replaces expired hardcoded session IDs)
+    search_url = "https://f95zone.to/search/search"
+    payload = {
+        'keywords': query,
+        'order': 'relevance',
+        'c[title_only]': 1 if title_only else 0
+    }
     
     try:
-        r = requests.get(search_url, headers=headers, cookies=cookies, timeout=15)
+        r = requests.post(search_url, data=payload, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
         if r.status_code != 200:
-            return []
+            # Fallback to GET search query
+            r = requests.get(search_url, params=payload, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
+            if r.status_code != 200:
+                return []
             
         soup = BeautifulSoup(r.text, 'html.parser')
         results = []
@@ -41,7 +49,7 @@ def search_f95_threads(query: str, limit: int = 5) -> List[Dict[str, str]]:
                 break
                 
         return results
-    except Exception as e:
+    except Exception:
         return []
 
 if __name__ == "__main__":
