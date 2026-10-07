@@ -543,6 +543,9 @@
     <div class="drawer-header">
       <span id="drawerTitle">正在进行的下载任务</span>
       <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btnToggleAllJobs" class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px; display: none;" onclick="toggleAllJobs()">
+          ⏸ 全部暂停
+        </button>
         <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearFinishedJobs()">清空已完成</button>
         <button style="background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="toggleDrawer()">✕</button>
       </div>
@@ -1392,6 +1395,21 @@
       }
     }
 
+    async function toggleAllJobs() {
+      const btn = document.getElementById('btnToggleAllJobs');
+      const action = btn?.getAttribute('data-action') || 'pause';
+      try {
+        if (action === 'pause') {
+          await fetch('/api/download/pause_all', { method: 'POST' });
+        } else {
+          await fetch('/api/download/resume_all', { method: 'POST' });
+        }
+        pollJobs();
+      } catch (e) {
+        alert('操作失败: ' + e.message);
+      }
+    }
+
     async function pollJobs() {
       try {
         const res = await fetch('/api/jobs');
@@ -1400,6 +1418,7 @@
         
         const runningKeys = jids.filter(k => ['DOWNLOADING', 'EXTRACTING', 'UNMASKING', 'PENDING'].includes(jobs[k].status));
         const queuedKeys = jids.filter(k => jobs[k].status === 'QUEUED');
+        const pausedKeys = jids.filter(k => jobs[k].status === 'PAUSED');
         const totalActive = runningKeys.length + queuedKeys.length;
         
         const countBadge = document.getElementById('activeJobCount');
@@ -1411,6 +1430,21 @@
         const drawerTitle = document.getElementById('drawerTitle');
         if (drawerTitle) {
           drawerTitle.innerHTML = `下载任务 <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">(运行: ${runningKeys.length}/${maxLimit} · 排队: ${queuedKeys.length})</span>`;
+        }
+
+        const btnToggleAll = document.getElementById('btnToggleAllJobs');
+        if (btnToggleAll) {
+          if (totalActive > 0) {
+            btnToggleAll.style.display = 'inline-flex';
+            btnToggleAll.setAttribute('data-action', 'pause');
+            btnToggleAll.innerHTML = '⏸ 全部暂停';
+          } else if (pausedKeys.length > 0) {
+            btnToggleAll.style.display = 'inline-flex';
+            btnToggleAll.setAttribute('data-action', 'resume');
+            btnToggleAll.innerHTML = '▶ 全部恢复';
+          } else {
+            btnToggleAll.style.display = 'none';
+          }
         }
 
         const listEl = document.getElementById('drawerJobList');

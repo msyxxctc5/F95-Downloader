@@ -435,6 +435,38 @@ class DownloadQueueManager:
             job.pause()
             return "paused"
 
+    def pause_all(self) -> int:
+        with self._lock:
+            self._clean_stale_running()
+            count = 0
+            # Drain queue and mark each as paused
+            while self._queue:
+                jid = self._queue.pop(0)
+                job = self._jobs.get(jid)
+                if job:
+                    job.pause()
+                    count += 1
+            # Signal pause to all currently running jobs
+            for jid in list(self._running):
+                job = self._jobs.get(jid)
+                if job:
+                    job.pause()
+                    count += 1
+            return count
+
+    def resume_all(self) -> int:
+        with self._lock:
+            self._clean_stale_running()
+            count = 0
+            paused_jids = [
+                jid for jid, job in self._jobs.items()
+                if job.status == "PAUSED"
+            ]
+            for jid in paused_jids:
+                self.resume(jid)
+                count += 1
+            return count
+
     def cancel(self, job_id: str) -> str:
         with self._lock:
             job = self._jobs.get(job_id)

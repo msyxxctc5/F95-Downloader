@@ -309,6 +309,102 @@ class TestDownloadQueue(unittest.TestCase):
 
             block_run.set()
 
+    def test_06_pause_all_and_resume_all(self):
+        """Test pausing all tasks at once and resuming all tasks through queue manager."""
+        manager = DownloadQueueManager(max_concurrent=2, jobs_dict=self.mock_jobs_dict)
+
+        job1 = DownloadJob("AuthorE", "2026-01", "https://f95zone.to/masked/e1")
+        job2 = DownloadJob("AuthorE", "2026-02", "https://f95zone.to/masked/e2")
+        job3 = DownloadJob("AuthorE", "2026-03", "https://f95zone.to/masked/e3")
+        job4 = DownloadJob("AuthorE", "2026-04", "https://f95zone.to/masked/e4")
+
+        stop_event = threading.Event()
+
+        def block_run(job_inst):
+            def _runner(*args, **kwargs):
+                job_inst.status = "DOWNLOADING"
+                while not job_inst._pause_event.is_set() and not stop_event.is_set():
+                    time.sleep(0.02)
+                return
+            return _runner
+
+        with patch.object(job1, "run", side_effect=block_run(job1)), \
+             patch.object(job2, "run", side_effect=block_run(job2)), \
+             patch.object(job3, "run", side_effect=block_run(job3)), \
+             patch.object(job4, "run", side_effect=block_run(job4)):
+
+            manager.submit("e1", job1)
+            manager.submit("e2", job2)
+            manager.submit("e3", job3)
+            manager.submit("e4", job4)
+
+            self.assertEqual(manager.get_stats()["running_count"], 2)
+            self.assertEqual(manager.get_stats()["queued_count"], 2)
+
+            # Pause all
+            paused_cnt = manager.pause_all()
+            self.assertEqual(paused_cnt, 4)
+
+            # Wait briefly for workers to acknowledge pause
+            for _ in range(50):
+                if manager.get_stats()["running_count"] == 0:
+                    break
+                time.sleep(0.02)
+
+            self.assertEqual(job1.status, "PAUSED")
+            self.assertEqual(job2.status, "PAUSED")
+            self.assertEqual(job3.status, "PAUSED")
+            self.assertEqual(job4.status, "PAUSED")
+            self.assertEqual(manager.get_stats()["queued_count"], 0)
+            self.assertEqual(manager.get_stats()["running_count"], 0)
+
+            # Resume all
+            resumed_cnt = manager.resume_all()
+            self.assertEqual(resumed_cnt, 4)
+
+            # Verify 2 are promoted to running, 2 are queued
+            stats = manager.get_stats()
+            self.assertEqual(stats["running_count"], 2)
+            self.assertEqual(stats["queued_count"], 2)
+
+            stop_event.set()
+
+    def test_07_api_pause_all_and_resume_all(self):
+        """Test /api/download/pause_all and /api/download/resume_all HTTP endpoints."""
+        client = TestClient(server.app)
+        server.queue_manager.clear_finished()
+        server.queue_manager.set_max_concurrent(2)
+
+        j1 = DownloadJob("ApiAuthor", "2026-01", "https://f95zone.to/masked/api_a1")
+        j1.status = "DOWNLOADING"
+        server.active_jobs["ApiAuthor_2026-01"] = j1
+        server.queue_manager._running.add("ApiAuthor_2026-01")
+
+        j2 = DownloadJob("ApiAuthor", "2026-02", "https://f95zone.to/masked/api_a2")
+        j2.status = "QUEUED"
+        server.active_jobs["ApiAuthor_2026-02"] = j2
+        server.queue_manager._queue.append("ApiAuthor_2026-02")
+
+        # 1. Pause All via API
+        r_pause = client.post("/api/download/pause_all")
+        self.assertEqual(r_pause.status_code, 200)
+        self.assertEqual(r_pause.json()["paused_count"], 2)
+
+        # Verify all are PAUSED
+        self.assertEqual(j1.status, "PAUSED")
+        self.assertEqual(j2.status, "PAUSED")
+        self.assertEqual(len(server.queue_manager._queue), 0)
+
+        # 2. Resume All via API
+        with patch.object(DownloadJob, "run"):
+            r_resume = client.post("/api/download/resume_all")
+            self.assertEqual(r_resume.status_code, 200)
+            self.assertEqual(r_resume.json()["resumed_count"], 2)
+
+        # Since limit is 2, both resume
+        self.assertIn(j1.status, ("PENDING", "DOWNLOADING"))
+        self.assertIn(j2.status, ("PENDING", "DOWNLOADING"))
+
 
 if __name__ == "__main__":
     unittest.main()

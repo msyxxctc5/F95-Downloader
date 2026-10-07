@@ -378,6 +378,16 @@ def cancel_download(req: JobActionRequest):
     status = queue_manager.cancel(req.job_id)
     return {"status": status, "job_id": req.job_id}
 
+@app.post("/api/download/pause_all")
+def pause_all_downloads():
+    count = queue_manager.pause_all()
+    return {"status": "ok", "paused_count": count}
+
+@app.post("/api/download/resume_all")
+def resume_all_downloads():
+    count = queue_manager.resume_all()
+    return {"status": "ok", "resumed_count": count}
+
 class IngestRequest(BaseModel):
     archive_path: str
     author: str
