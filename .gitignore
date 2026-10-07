@@ -9,6 +9,7 @@ data/
 downloads/
 
 # Test and temporary inspection files
+test_*.py
 *.log
 *.tmp
 *.txt
