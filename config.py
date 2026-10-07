@@ -30,7 +30,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "auto_extract": True,
     "delete_archive_after_extract": True,
     "known_passwords": ["f95zone", "f95"],
-    "seven_zip_path": ""
+    "seven_zip_path": "",
+    "max_concurrent_downloads": 3
 }
 
 def get_library_root() -> Path:
@@ -74,6 +75,16 @@ def get_7z_custom_path() -> Optional[str]:
     if p and str(p).strip():
         return str(p).strip()
     return None
+
+def get_max_concurrent_downloads() -> int:
+    """Returns the maximum concurrent download tasks (clamped between 1 and 5, default 3)."""
+    cfg = load_config()
+    raw = cfg.get("max_concurrent_downloads")
+    try:
+        val = int(raw)
+        return max(1, min(5, val))
+    except (TypeError, ValueError):
+        return 3
 
 def safe_join(root: Path, *parts: str) -> Path:
     """

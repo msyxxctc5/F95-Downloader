@@ -16,11 +16,11 @@ import uvicorn
 from config import (
     load_config, save_config, get_request_cookies,
     get_library_root, get_download_dir, get_user_agent,
-    safe_join, safe_filename, atomic_write_json
+    get_max_concurrent_downloads, safe_join, safe_filename, atomic_write_json
 )
 from scanner import scan_all_authors, scan_author_directory, invalidate_author_cache
 from diff_engine import compare_local_vs_f95, unmask_f95_link, unmask_f95_link_detailed
-from downloader import DownloadJob, resolve_direct_download_url
+from downloader import DownloadJob, DownloadQueueManager, resolve_direct_download_url
 from idm_helper import download_with_idm, find_idm_path
 from ingest import scan_downloads_folder, ingest_archive_to_library
 from f95_search import search_f95_threads
@@ -65,8 +65,12 @@ DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 ARTISTS_FILE = DATA_DIR / "artists.json"
 
-# In-memory tracking of active download jobs
+# In-memory tracking of active download jobs and concurrent queue
 active_jobs: Dict[str, DownloadJob] = {}
+queue_manager = DownloadQueueManager(
+    max_concurrent=get_max_concurrent_downloads(),
+    jobs_dict=active_jobs
+)
 
 _artists_lock = threading.Lock()
 
@@ -108,6 +112,7 @@ class ConfigUpdateRequest(BaseModel):
     download_dir: Optional[str] = None
     user_agent: Optional[str] = None
     delete_archive_after_extract: Optional[bool] = None
+    max_concurrent_downloads: Optional[int] = None
 
 def mask_cookie_val(val: Optional[str]) -> str:
     if not val:
@@ -130,6 +135,7 @@ def get_config():
     safe["library_root"] = str(get_library_root())
     safe["download_dir"] = str(get_download_dir())
     safe["user_agent"] = get_user_agent()
+    safe["max_concurrent_downloads"] = get_max_concurrent_downloads()
     return safe
 
 @app.post("/api/config")
@@ -147,6 +153,10 @@ def update_config(req: ConfigUpdateRequest):
         cfg["user_agent"] = req.user_agent.strip()
     if req.delete_archive_after_extract is not None:
         cfg["delete_archive_after_extract"] = req.delete_archive_after_extract
+    if req.max_concurrent_downloads is not None:
+        val = max(1, min(5, int(req.max_concurrent_downloads)))
+        cfg["max_concurrent_downloads"] = val
+        queue_manager.set_max_concurrent(val)
     save_config(cfg)
     return {"status": "ok", "config": get_config()}
 
@@ -336,58 +346,47 @@ class JobActionRequest(BaseModel):
     job_id: str
 
 @app.post("/api/download/start")
-def start_download(req: StartDownloadRequest, background_tasks: BackgroundTasks):
+def start_download(req: StartDownloadRequest):
     job_id = f"{req.author}_{req.month}"
-    if job_id in active_jobs:
-        curr = active_jobs[job_id].status
-        if curr not in ("FAILED", "CANCELLED", "COMPLETED", "DONE", "PAUSED"):
-            return {"status": "already_running", "job_id": job_id}
-        if curr == "PAUSED":
-            job = active_jobs[job_id]
-            job.resume()
-            threading.Thread(target=job.run, daemon=True).start()
-            return {"status": "resumed", "job_id": job_id}
-
     job = DownloadJob(
         author=req.author,
         month=req.month,
         masked_url=req.masked_url,
         password=req.password or "f95zone"
     )
-    active_jobs[job_id] = job
-
-    def run_worker():
-        job.run()
-
-    threading.Thread(target=run_worker, daemon=True).start()
-    return {"status": "started", "job_id": job_id}
+    status = queue_manager.submit(job_id, job)
+    return {"status": status, "job_id": job_id}
 
 @app.post("/api/download/pause")
 def pause_download(req: JobActionRequest):
-    job = active_jobs.get(req.job_id)
-    if not job:
+    if req.job_id not in active_jobs:
         raise HTTPException(status_code=404, detail="未找到指定的下载任务")
-    job.pause()
-    return {"status": "paused", "job_id": req.job_id}
+    status = queue_manager.pause(req.job_id)
+    return {"status": status, "job_id": req.job_id}
 
 @app.post("/api/download/resume")
 def resume_download(req: JobActionRequest):
-    job = active_jobs.get(req.job_id)
-    if not job:
+    if req.job_id not in active_jobs:
         raise HTTPException(status_code=404, detail="未找到指定的下载任务")
-    if job.status in ("DOWNLOADING", "EXTRACTING", "UNMASKING"):
-        return {"status": "already_running", "job_id": req.job_id}
-    job.resume()
-    threading.Thread(target=job.run, daemon=True).start()
-    return {"status": "resumed", "job_id": req.job_id}
+    status = queue_manager.resume(req.job_id)
+    return {"status": status, "job_id": req.job_id}
 
 @app.post("/api/download/cancel")
 def cancel_download(req: JobActionRequest):
-    job = active_jobs.get(req.job_id)
-    if not job:
+    if req.job_id not in active_jobs:
         raise HTTPException(status_code=404, detail="未找到指定的下载任务")
-    job.cancel()
-    return {"status": "cancelled", "job_id": req.job_id}
+    status = queue_manager.cancel(req.job_id)
+    return {"status": status, "job_id": req.job_id}
+
+@app.post("/api/download/pause_all")
+def pause_all_downloads():
+    count = queue_manager.pause_all()
+    return {"status": "ok", "paused_count": count}
+
+@app.post("/api/download/resume_all")
+def resume_all_downloads():
+    count = queue_manager.resume_all()
+    return {"status": "ok", "resumed_count": count}
 
 class IngestRequest(BaseModel):
     archive_path: str
@@ -463,8 +462,7 @@ def unmask_endpoint(url: str):
 
 @app.post("/api/jobs/clear")
 def clear_jobs():
-    global active_jobs
-    active_jobs = {k: v for k, v in active_jobs.items() if v.status in ("DOWNLOADING", "EXTRACTING", "PAUSED", "UNMASKING")}
+    queue_manager.clear_finished()
     return {"status": "ok"}
 
 @app.get("/api/jobs")
@@ -480,9 +478,14 @@ def get_jobs_status():
             "total_size": job.total_size,
             "speed": job.speed_str,
             "error": job.error_msg,
-            "final_path": job.final_path
+            "final_path": job.final_path,
+            "queue_position": queue_manager.get_queue_position(jid)
         }
     return result
+
+@app.get("/api/jobs/queue_stats")
+def get_queue_stats():
+    return queue_manager.get_stats()
 
 # Serve Frontend
 STATIC_DIR = Path(__file__).parent / "static"

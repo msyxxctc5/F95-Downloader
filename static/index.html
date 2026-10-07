@@ -541,8 +541,11 @@
   <!-- Download Drawer -->
   <div class="download-drawer" id="downloadDrawer">
     <div class="drawer-header">
-      <span>正在进行的下载任务</span>
+      <span id="drawerTitle">正在进行的下载任务</span>
       <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btnToggleAllJobs" class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px; display: none;" onclick="toggleAllJobs()">
+          ⏸ 全部暂停
+        </button>
         <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="clearFinishedJobs()">清空已完成</button>
         <button style="background: none; border: none; color: var(--text-muted); cursor: pointer;" onclick="toggleDrawer()">✕</button>
       </div>
@@ -558,6 +561,16 @@
   <div class="modal-overlay" id="settingsModal">
     <div class="modal">
       <h3 style="font-size: 18px;">配置选项</h3>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="font-size: 12px; color: var(--text-muted);">同时下载任务数 (超出自动在队列中排队等待):</label>
+        <select id="settingMaxConcurrent" class="thread-input" style="cursor: pointer; background: rgba(0,0,0,0.4); color: white; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+          <option value="1">1 个任务 (严格单任务串行，对网络与论坛最温和)</option>
+          <option value="2">2 个任务</option>
+          <option value="3">3 个任务 (默认推荐，速度与稳定性均衡)</option>
+          <option value="4">4 个任务</option>
+          <option value="5">5 个任务 (最高并发，高速宽带适用)</option>
+        </select>
+      </div>
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <label style="font-size: 12px; color: var(--text-muted);">F95zone xf_user Cookie:</label>
         <input type="text" id="settingXfUser" class="thread-input" placeholder="如 1234567%2Cabcdef...">
@@ -665,10 +678,13 @@
       }
     }
 
+    let currentConfig = null;
+
     async function loadConfig() {
       try {
         const res = await fetch('/api/config');
         const cfg = await res.json();
+        currentConfig = cfg;
         document.getElementById('settingXfUser').value = '';
         if (cfg.has_xf_user) {
           document.getElementById('settingXfUser').placeholder = `已配置: ${cfg.xf_user_masked} (留空保持不变)`;
@@ -679,6 +695,10 @@
         document.getElementById('settingDownloadDir').value = cfg.download_dir || '';
         document.getElementById('settingUserAgent').value = cfg.user_agent || '';
         document.getElementById('settingAutoDelete').checked = cfg.delete_archive_after_extract ?? true;
+        const maxConcEl = document.getElementById('settingMaxConcurrent');
+        if (maxConcEl) {
+          maxConcEl.value = String(cfg.max_concurrent_downloads || 3);
+        }
       } catch (e) {
         console.error("Failed to load config", e);
       }
@@ -688,6 +708,7 @@
       const newXf = document.getElementById('settingXfUser').value.trim();
       const newUa = document.getElementById('settingUserAgent').value.trim();
       const newDlDir = document.getElementById('settingDownloadDir').value.trim();
+      const maxConcVal = parseInt(document.getElementById('settingMaxConcurrent').value, 10);
       const payload = {
         library_root: document.getElementById('settingLibRoot').value.trim(),
         delete_archive_after_extract: document.getElementById('settingAutoDelete').checked
@@ -700,6 +721,9 @@
       }
       if (newDlDir) {
         payload.download_dir = newDlDir;
+      }
+      if (!isNaN(maxConcVal)) {
+        payload.max_concurrent_downloads = Math.max(1, Math.min(5, maxConcVal));
       }
       await fetch('/api/config', {
         method: 'POST',
@@ -1306,7 +1330,8 @@
         return;
       }
 
-      if (!confirm(`检测到 ${missingList.length} 个缺失版本。为防止触发 F95zone 防火墙频率限制，将以 1.5 秒安全间隔排队加入下载队列。是否继续？`)) {
+      const maxLimit = currentConfig?.max_concurrent_downloads || 3;
+      if (!confirm(`检测到 ${missingList.length} 个缺失版本。系统将根据设置（最大同时下载: ${maxLimit} 个）自动排队下载，超出任务将在列表中排队等待。是否继续？`)) {
         return;
       }
 
@@ -1370,13 +1395,57 @@
       }
     }
 
+    async function toggleAllJobs() {
+      const btn = document.getElementById('btnToggleAllJobs');
+      const action = btn?.getAttribute('data-action') || 'pause';
+      try {
+        if (action === 'pause') {
+          await fetch('/api/download/pause_all', { method: 'POST' });
+        } else {
+          await fetch('/api/download/resume_all', { method: 'POST' });
+        }
+        pollJobs();
+      } catch (e) {
+        alert('操作失败: ' + e.message);
+      }
+    }
+
     async function pollJobs() {
       try {
         const res = await fetch('/api/jobs');
         const jobs = await res.json();
         const jids = Object.keys(jobs);
         
-        document.getElementById('activeJobCount').innerText = jids.filter(k => ['PENDING', 'UNMASKING', 'DOWNLOADING', 'EXTRACTING', 'PAUSED'].includes(jobs[k].status)).length;
+        const runningKeys = jids.filter(k => ['DOWNLOADING', 'EXTRACTING', 'UNMASKING', 'PENDING'].includes(jobs[k].status));
+        const queuedKeys = jids.filter(k => jobs[k].status === 'QUEUED');
+        const pausedKeys = jids.filter(k => jobs[k].status === 'PAUSED');
+        const totalActive = runningKeys.length + queuedKeys.length;
+        
+        const countBadge = document.getElementById('activeJobCount');
+        if (countBadge) {
+          countBadge.innerText = totalActive;
+        }
+
+        const maxLimit = currentConfig?.max_concurrent_downloads || 3;
+        const drawerTitle = document.getElementById('drawerTitle');
+        if (drawerTitle) {
+          drawerTitle.innerHTML = `下载任务 <span style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 4px;">(运行: ${runningKeys.length}/${maxLimit} · 排队: ${queuedKeys.length})</span>`;
+        }
+
+        const btnToggleAll = document.getElementById('btnToggleAllJobs');
+        if (btnToggleAll) {
+          if (totalActive > 0) {
+            btnToggleAll.style.display = 'inline-flex';
+            btnToggleAll.setAttribute('data-action', 'pause');
+            btnToggleAll.innerHTML = '⏸ 全部暂停';
+          } else if (pausedKeys.length > 0) {
+            btnToggleAll.style.display = 'inline-flex';
+            btnToggleAll.setAttribute('data-action', 'resume');
+            btnToggleAll.innerHTML = '▶ 全部恢复';
+          } else {
+            btnToggleAll.style.display = 'none';
+          }
+        }
 
         const listEl = document.getElementById('drawerJobList');
         if (jids.length === 0) {
@@ -1389,15 +1458,21 @@
           let statusText = j.status;
           let statusColor = "var(--text-muted)";
           if (j.status === "DOWNLOADING") { statusText = `正在下载 (${j.speed})`; statusColor = "#6366f1"; }
+          if (j.status === "QUEUED") { 
+            statusText = j.queue_position ? `⏳ 排队等待中 (第 ${j.queue_position} 位)` : "⏳ 排队等待中"; 
+            statusColor = "#f59e0b"; 
+          }
+          if (j.status === "PENDING" || j.status === "UNMASKING") { statusText = "🔗 正在解析直链..."; statusColor = "#a855f7"; }
           if (j.status === "PAUSED") { statusText = "⏸ 已暂停"; statusColor = "#f59e0b"; }
           if (j.status === "CANCELLED") { statusText = "❌ 已取消"; statusColor = "#94a3b8"; }
           if (j.status === "EXTRACTING") { statusText = "正在自动解压归档..."; statusColor = "#f59e0b"; }
           if (j.status === "COMPLETED") { statusText = "✔ 归档完成"; statusColor = "#10b981"; }
           if (j.status === "FAILED") { statusText = "✕ 失败: " + j.error; statusColor = "#ef4444"; }
 
-          const canPause = j.status === "DOWNLOADING";
+          const canPause = ["DOWNLOADING", "QUEUED"].includes(j.status);
           const canResume = j.status === "PAUSED" || j.status === "FAILED";
-          const canCancel = ["DOWNLOADING", "PAUSED", "PENDING", "UNMASKING"].includes(j.status);
+          const canCancel = ["DOWNLOADING", "PAUSED", "PENDING", "UNMASKING", "QUEUED"].includes(j.status);
+          const isQueued = j.status === "QUEUED";
 
           return `
             <div class="job-item">
@@ -1406,11 +1481,11 @@
                 <span style="color: ${statusColor}; font-weight: 500;">${statusText}</span>
               </div>
               <div class="progress-bar-container">
-                <div class="progress-bar-fill" style="width: ${j.progress}%;"></div>
+                <div class="progress-bar-fill" style="width: ${isQueued ? 0 : j.progress}%;"></div>
               </div>
               <div class="job-info-row" style="color: var(--text-muted); font-size: 11px;">
-                <span>${j.progress}%</span>
-                <span>${(j.downloaded_size / (1024*1024)).toFixed(1)} MB ${j.total_size ? '/ ' + (j.total_size / (1024*1024)).toFixed(1) + ' MB' : ''}</span>
+                <span>${isQueued ? '等待空闲槽位' : j.progress + '%'}</span>
+                <span>${isQueued ? (j.downloaded_size > 0 ? '已断点缓存 ' + (j.downloaded_size / (1024*1024)).toFixed(1) + ' MB' : '队列就绪') : ((j.downloaded_size / (1024*1024)).toFixed(1) + ' MB ' + (j.total_size ? '/ ' + (j.total_size / (1024*1024)).toFixed(1) + ' MB' : ''))}</span>
               </div>
               ${(canPause || canResume || canCancel) ? `
                 <div style="display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px;">

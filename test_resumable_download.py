@@ -17,6 +17,10 @@ class TestResumableDownload(unittest.TestCase):
         self.dl_dir.mkdir(parents=True, exist_ok=True)
         self.lib_dir = Path(self.temp_dir) / "library"
         self.lib_dir.mkdir(parents=True, exist_ok=True)
+        server.active_jobs.clear()
+        server.queue_manager._queue.clear()
+        server.queue_manager._running.clear()
+        server.queue_manager.set_max_concurrent(3)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)

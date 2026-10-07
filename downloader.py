@@ -5,7 +5,7 @@ import logging
 import threading
 import requests
 from pathlib import Path
-from typing import Dict, Any, Callable, Optional, Tuple
+from typing import Dict, Any, Callable, Optional, Tuple, List, Set
 
 from config import (
     load_config, get_request_cookies, get_download_dir,
@@ -322,3 +322,200 @@ class DownloadJob:
             self.speed_str = "0 KB/s"
             if progress_callback:
                 progress_callback(self)
+
+
+class DownloadQueueManager:
+    """
+    Manages concurrent download execution and waiting queue (FIFO).
+    Guarantees that at most max_concurrent tasks are actively downloading/extracting/unmasking.
+    Excess tasks enter QUEUED state and automatically start when running tasks finish, pause, or cancel.
+    """
+    def __init__(self, max_concurrent: int = 3, jobs_dict: Optional[Dict[str, DownloadJob]] = None):
+        self._max_concurrent = max(1, min(5, int(max_concurrent)))
+        self._jobs: Dict[str, DownloadJob] = jobs_dict if jobs_dict is not None else {}
+        self._queue: List[str] = []
+        self._running: Set[str] = set()
+        self._lock = threading.RLock()
+
+    @property
+    def jobs(self) -> Dict[str, DownloadJob]:
+        return self._jobs
+
+    def get_max_concurrent(self) -> int:
+        with self._lock:
+            return self._max_concurrent
+
+    def set_max_concurrent(self, limit: int):
+        with self._lock:
+            self._max_concurrent = max(1, min(5, int(limit)))
+            self._process_queue()
+
+    def get_queue_position(self, job_id: str) -> Optional[int]:
+        with self._lock:
+            if job_id in self._queue:
+                return self._queue.index(job_id) + 1
+            return None
+
+    def _clean_stale_running(self):
+        stale = [
+            jid for jid in self._running
+            if jid not in self._jobs or self._jobs[jid].status in ("COMPLETED", "DONE", "FAILED", "CANCELLED", "PAUSED")
+        ]
+        for jid in stale:
+            self._running.discard(jid)
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self._lock:
+            self._clean_stale_running()
+            return {
+                "running_count": len(self._running),
+                "queued_count": len(self._queue),
+                "max_concurrent": self._max_concurrent
+            }
+
+    def submit(self, job_id: str, job: DownloadJob) -> str:
+        with self._lock:
+            self._clean_stale_running()
+            if job_id in self._jobs:
+                curr = self._jobs[job_id].status
+                if curr in ("DOWNLOADING", "EXTRACTING", "UNMASKING", "PENDING"):
+                    return "already_running"
+                if curr == "QUEUED":
+                    return "already_queued"
+                if curr == "PAUSED":
+                    return self.resume(job_id)
+
+            self._jobs[job_id] = job
+
+            if len(self._running) < self._max_concurrent:
+                self._running.add(job_id)
+                job.status = "PENDING"
+                self._spawn_worker(job_id, job)
+                return "started"
+            else:
+                job.status = "QUEUED"
+                if job_id not in self._queue:
+                    self._queue.append(job_id)
+                return "queued"
+
+    def resume(self, job_id: str) -> str:
+        with self._lock:
+            self._clean_stale_running()
+            job = self._jobs.get(job_id)
+            if not job:
+                return "not_found"
+            if job.status in ("DOWNLOADING", "EXTRACTING", "UNMASKING"):
+                return "already_running"
+            if job.status == "QUEUED":
+                return "already_queued"
+
+            job.resume()
+            if len(self._running) < self._max_concurrent:
+                self._running.add(job_id)
+                job.status = "PENDING"
+                self._spawn_worker(job_id, job)
+                return "resumed"
+            else:
+                job.status = "QUEUED"
+                if job_id not in self._queue:
+                    self._queue.append(job_id)
+                return "queued"
+
+    def pause(self, job_id: str) -> str:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return "not_found"
+
+            if job_id in self._queue:
+                self._queue.remove(job_id)
+                job.pause()
+                return "paused"
+
+            job.pause()
+            return "paused"
+
+    def pause_all(self) -> int:
+        with self._lock:
+            self._clean_stale_running()
+            count = 0
+            # Drain queue and mark each as paused
+            while self._queue:
+                jid = self._queue.pop(0)
+                job = self._jobs.get(jid)
+                if job:
+                    job.pause()
+                    count += 1
+            # Signal pause to all currently running jobs
+            for jid in list(self._running):
+                job = self._jobs.get(jid)
+                if job:
+                    job.pause()
+                    count += 1
+            return count
+
+    def resume_all(self) -> int:
+        with self._lock:
+            self._clean_stale_running()
+            count = 0
+            paused_jids = [
+                jid for jid, job in self._jobs.items()
+                if job.status == "PAUSED"
+            ]
+            for jid in paused_jids:
+                self.resume(jid)
+                count += 1
+            return count
+
+    def cancel(self, job_id: str) -> str:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return "not_found"
+
+            if job_id in self._queue:
+                self._queue.remove(job_id)
+
+            job.cancel()
+            return "cancelled"
+
+    def clear_finished(self):
+        with self._lock:
+            self._clean_stale_running()
+            to_remove = [
+                k for k, v in self._jobs.items()
+                if v.status in ("COMPLETED", "DONE", "FAILED", "CANCELLED")
+                and k not in self._running
+                and k not in self._queue
+            ]
+            for k in to_remove:
+                del self._jobs[k]
+
+    def _spawn_worker(self, job_id: str, job: DownloadJob):
+        def _worker():
+            try:
+                job.run()
+            except Exception as e:
+                logger.error("Job %s worker failed: %s", job_id, e)
+            finally:
+                with self._lock:
+                    self._running.discard(job_id)
+                    self._process_queue()
+
+        t = threading.Thread(target=_worker, daemon=True, name=f"DownloadWorker-{job_id}")
+        t.start()
+
+    def _process_queue(self):
+        # Must be called within self._lock
+        self._clean_stale_running()
+        while len(self._running) < self._max_concurrent and self._queue:
+            next_id = self._queue.pop(0)
+            next_job = self._jobs.get(next_id)
+            if not next_job:
+                continue
+            if next_job.status in ("CANCELLED", "COMPLETED", "DONE", "PAUSED"):
+                continue
+            next_job.status = "PENDING"
+            self._running.add(next_id)
+            self._spawn_worker(next_id, next_job)
+
