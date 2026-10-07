@@ -3,5 +3,6 @@
   "download_dir": "./downloads",
   "seven_zip_path": "7z",
   "xf_user": "YOUR_F95ZONE_XF_USER_COOKIE_HERE",
-  "delete_archive_after_extract": false
+  "delete_archive_after_extract": false,
+  "max_concurrent_downloads": 3
 }
